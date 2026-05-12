@@ -2,7 +2,7 @@
  * Generic quota section component.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -25,8 +25,9 @@ type QuotaSetter<T> = (updater: QuotaUpdater<T>) => void;
 
 type ViewMode = 'paged' | 'all';
 
-const MAX_ITEMS_PER_PAGE = 25;
+const MAX_AUTO_ITEMS_PER_PAGE = 25;
 const MAX_SHOW_ALL_THRESHOLD = 30;
+const MIN_QUOTA_PAGE_SIZE = 1;
 
 interface QuotaPaginationState<T> {
   pageSize: number;
@@ -114,6 +115,8 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
   /* Removed useRef */
   const [columns, gridRef] = useGridColumns(380); // Min card width 380px matches SCSS
   const [viewMode, setViewMode] = useState<ViewMode>('paged');
+  const [customPageSize, setCustomPageSize] = useState<number | null>(null);
+  const [pageSizeInput, setPageSizeInput] = useState('');
   const [showTooManyWarning, setShowTooManyWarning] = useState(false);
 
   const filteredFiles = useMemo(() => files.filter((file) => config.filterFn(file)), [
@@ -134,6 +137,19 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     loading: sectionLoading,
     setLoading
   } = useQuotaPagination(filteredFiles);
+  const automaticPageSize = useMemo(() => {
+    if (effectiveViewMode === 'all') {
+      return Math.max(MIN_QUOTA_PAGE_SIZE, filteredFiles.length);
+    }
+    return Math.min(columns * 3, MAX_AUTO_ITEMS_PER_PAGE);
+  }, [columns, effectiveViewMode, filteredFiles.length]);
+  const maxQuotaPageSize = Math.max(MIN_QUOTA_PAGE_SIZE, filteredFiles.length);
+
+  const clampQuotaPageSize = useCallback(
+    (value: number) =>
+      Math.min(maxQuotaPageSize, Math.max(MIN_QUOTA_PAGE_SIZE, Math.round(value))),
+    [maxQuotaPageSize]
+  );
 
   useEffect(() => {
     if (showAllAllowed) return;
@@ -151,15 +167,14 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     };
   }, [showAllAllowed, viewMode]);
 
-  // Update page size based on view mode and columns
   useEffect(() => {
-    if (effectiveViewMode === 'all') {
-      setPageSize(Math.max(1, filteredFiles.length));
-    } else {
-      // Paged mode: 3 rows * columns, capped to avoid oversized pages.
-      setPageSize(Math.min(columns * 3, MAX_ITEMS_PER_PAGE));
-    }
-  }, [effectiveViewMode, columns, filteredFiles.length, setPageSize]);
+    const nextPageSize =
+      effectiveViewMode === 'all'
+        ? automaticPageSize
+        : clampQuotaPageSize(customPageSize ?? automaticPageSize);
+    setPageSize(nextPageSize);
+    setPageSizeInput(String(nextPageSize));
+  }, [automaticPageSize, clampQuotaPageSize, customPageSize, effectiveViewMode, setPageSize]);
 
   const { quota, loadQuota } = useQuotaLoader(config);
 
@@ -170,6 +185,49 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     pendingQuotaRefreshRef.current = true;
     void triggerHeaderRefresh();
   }, []);
+
+  const commitPageSizeInput = useCallback(
+    (rawValue: string) => {
+      const trimmed = rawValue.trim();
+      if (!trimmed) {
+        const next = clampQuotaPageSize(automaticPageSize);
+        setCustomPageSize(null);
+        setPageSize(next);
+        setPageSizeInput(String(next));
+        return;
+      }
+
+      const parsed = Number(trimmed);
+      if (!Number.isFinite(parsed)) {
+        setPageSizeInput(String(pageSize));
+        return;
+      }
+
+      const next = clampQuotaPageSize(parsed);
+      setCustomPageSize(next);
+      setPageSize(next);
+      setPageSizeInput(String(next));
+    },
+    [automaticPageSize, clampQuotaPageSize, pageSize, setPageSize]
+  );
+
+  const handlePageSizeChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const rawValue = event.currentTarget.value;
+      setPageSizeInput(rawValue);
+
+      const trimmed = rawValue.trim();
+      if (!trimmed) return;
+
+      const parsed = Number(trimmed);
+      if (!Number.isFinite(parsed)) return;
+
+      const next = clampQuotaPageSize(parsed);
+      setCustomPageSize(next);
+      setPageSize(next);
+    },
+    [clampQuotaPageSize, setPageSize]
+  );
 
   useEffect(() => {
     const wasLoading = prevFilesLoadingRef.current;
@@ -283,6 +341,27 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
               {t('auth_files.view_mode_all')}
             </Button>
           </div>
+          {effectiveViewMode === 'paged' && filteredFiles.length > 0 && (
+            <label className={styles.quotaPageSizeControl}>
+              <span>{t('quota_management.page_size_label')}</span>
+              <input
+                className={styles.pageSizeSelect}
+                type="number"
+                min={MIN_QUOTA_PAGE_SIZE}
+                max={maxQuotaPageSize}
+                step={1}
+                value={pageSizeInput}
+                onChange={handlePageSizeChange}
+                onBlur={(event) => commitPageSizeInput(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.currentTarget.blur();
+                  }
+                }}
+                aria-label={t('quota_management.page_size_label')}
+              />
+            </label>
+          )}
           <Button
             variant="secondary"
             size="sm"

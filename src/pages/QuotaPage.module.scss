@@ -97,6 +97,31 @@
   }
 }
 
+.quotaPageSizeControl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+
+  .pageSizeSelect {
+    width: 76px;
+    height: 36px;
+    padding: 6px 10px;
+  }
+
+  @include mobile {
+    width: 100%;
+    justify-content: space-between;
+
+    .pageSizeSelect {
+      flex: 0 0 96px;
+    }
+  }
+}
+
 .statsInfo {
   padding: 8px 12px;
   background-color: var(--bg-secondary);
