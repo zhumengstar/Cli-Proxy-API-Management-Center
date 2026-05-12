@@ -88,6 +88,7 @@ export function AuthFilesPage() {
   const [filter, setFilter] = useState<'all' | string>('all');
   const [problemOnly, setProblemOnly] = useState(false);
   const [disabledOnly, setDisabledOnly] = useState(false);
+  const [normalOnly, setNormalOnly] = useState(false);
   const [compactMode, setCompactMode] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -202,6 +203,9 @@ export function AuthFilesPage() {
       if (typeof persisted.disabledOnly === 'boolean') {
         setDisabledOnly(persisted.disabledOnly);
       }
+      if (typeof persisted.normalOnly === 'boolean') {
+        setNormalOnly(persisted.normalOnly);
+      }
       if (
         typeof persistedCompactMode !== 'boolean' &&
         typeof persisted.compactMode === 'boolean'
@@ -245,6 +249,7 @@ export function AuthFilesPage() {
       filter,
       problemOnly,
       disabledOnly,
+      normalOnly,
       compactMode,
       search,
       page,
@@ -258,6 +263,7 @@ export function AuthFilesPage() {
     compactMode,
     disabledOnly,
     filter,
+    normalOnly,
     page,
     pageSize,
     pageSizeByMode,
@@ -359,11 +365,14 @@ export function AuthFilesPage() {
   const filesMatchingStatusFilters = useMemo(
     () =>
       files.filter((file) => {
-        if (problemOnly && !hasAuthFileStatusMessage(file)) return false;
+        const hasProblem = hasAuthFileStatusMessage(file);
+        const isDisabled = file.disabled === true;
+        if (problemOnly && !hasProblem) return false;
+        if (normalOnly && (hasProblem || isDisabled)) return false;
         if (disabledOnly && file.disabled !== true) return false;
         return true;
       }),
-    [disabledOnly, files, problemOnly]
+    [disabledOnly, files, normalOnly, problemOnly]
   );
 
   const sortOptions = useMemo(
@@ -762,6 +771,9 @@ export function AuthFilesPage() {
                         checked={problemOnly}
                         onChange={(value) => {
                           setProblemOnly(value);
+                          if (value) {
+                            setNormalOnly(false);
+                          }
                           setPage(1);
                         }}
                         ariaLabel={t('auth_files.problem_filter_only')}
@@ -777,12 +789,34 @@ export function AuthFilesPage() {
                         checked={disabledOnly}
                         onChange={(value) => {
                           setDisabledOnly(value);
+                          if (value) {
+                            setNormalOnly(false);
+                          }
                           setPage(1);
                         }}
                         ariaLabel={t('auth_files.disabled_filter_only')}
                         label={
                           <span className={styles.filterToggleLabel}>
                             {t('auth_files.disabled_filter_only')}
+                          </span>
+                        }
+                      />
+                    </div>
+                    <div className={styles.filterToggleCard}>
+                      <ToggleSwitch
+                        checked={normalOnly}
+                        onChange={(value) => {
+                          setNormalOnly(value);
+                          if (value) {
+                            setProblemOnly(false);
+                            setDisabledOnly(false);
+                          }
+                          setPage(1);
+                        }}
+                        ariaLabel={t('auth_files.normal_filter_only')}
+                        label={
+                          <span className={styles.filterToggleLabel}>
+                            {t('auth_files.normal_filter_only')}
                           </span>
                         }
                       />
