@@ -117,7 +117,8 @@
     "quota_management": "配額管理",
     "config_management": "設定面板",
     "logs": "記錄檢視",
-    "system_info": "中心資訊"
+    "system_info": "中心資訊",
+    "account_pool": "帳號池"
   },
   "dashboard": {
     "title": "儀表板",
@@ -519,6 +520,7 @@
     "problem_filter_label": "問題篩選",
     "problem_filter_only": "僅顯示有問題憑證",
     "disabled_filter_only": "僅顯示已停用憑證",
+    "normal_filter_only": "僅顯示正常憑證",
     "display_options_label": "顯示選項",
     "compact_mode_label": "簡略模式",
     "sort_label": "排序",
@@ -1248,7 +1250,30 @@
     "refresh_files": "重新整理驗證檔案",
     "refresh_files_and_quota": "重新整理驗證檔案&配額",
     "refresh_all_credentials": "重新整理全部憑證",
+    "page_size_label": "每頁數量",
     "card_idle_hint": "請使用頂部「重新整理全部憑證」按鈕取得最新配額。"
+  },
+  "account_pool": {
+    "title": "帳號池",
+    "description": "同步所有已匯入的帳號 JSON，選擇後可打包下載。",
+    "sync": "同步帳號 JSON",
+    "check_selected": "檢測選取 ({{count}})",
+    "check_all": "檢測全部",
+    "checking": "正在檢測帳號狀態...",
+    "check_success": "檢測通過",
+    "check_unsupported": "此帳號類型暫不支援檢測",
+    "check_done": "檢測完成：通過 {{success}}，失敗 {{failed}}，不支援 {{unsupported}}",
+    "download_selected": "下載選取 ({{count}})",
+    "download_success": "已打包下載 {{count}} 個帳號 JSON",
+    "download_failed": "帳號池下載失敗：{{message}}",
+    "search_placeholder": "搜尋檔名、類型或狀態",
+    "type_filter": "帳號類型",
+    "type_all": "全部類型",
+    "stats": "顯示 {{visible}} / {{total}} 個帳號",
+    "select_visible": "選擇目前顯示",
+    "clear_selection": "清除選擇",
+    "empty_title": "帳號池為空",
+    "empty_desc": "匯入帳號 JSON 後，點擊同步即可在這裡查看。"
   },
   "system_info": {
     "title": "管理中心資訊",

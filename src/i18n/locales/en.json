@@ -117,7 +117,8 @@
     "quota_management": "Quota Management",
     "config_management": "Config Panel",
     "logs": "Logs Viewer",
-    "system_info": "Management Center Info"
+    "system_info": "Management Center Info",
+    "account_pool": "Account Pool"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -519,6 +520,7 @@
     "problem_filter_label": "Problem Filter",
     "problem_filter_only": "Only show problematic credentials",
     "disabled_filter_only": "Only show disabled credentials",
+    "normal_filter_only": "Only show normal credentials",
     "display_options_label": "Display options",
     "compact_mode_label": "Compact mode",
     "sort_label": "Sort",
@@ -1222,7 +1224,30 @@
     "refresh_files": "Refresh auth files",
     "refresh_files_and_quota": "Refresh files & quota",
     "refresh_all_credentials": "Refresh all credentials",
+    "page_size_label": "Per page",
     "card_idle_hint": "Use the top \"Refresh all credentials\" button to fetch the latest quota data."
+  },
+  "account_pool": {
+    "title": "Account Pool",
+    "description": "Sync all imported account JSON files, select them, and download them as a zip.",
+    "sync": "Sync account JSON",
+    "check_selected": "Check selected ({{count}})",
+    "check_all": "Check all",
+    "checking": "Checking account status...",
+    "check_success": "Check passed",
+    "check_unsupported": "This account type does not support checks yet",
+    "check_done": "Check complete: {{success}} passed, {{failed}} failed, {{unsupported}} unsupported",
+    "download_selected": "Download selected ({{count}})",
+    "download_success": "Downloaded {{count}} account JSON files as a zip",
+    "download_failed": "Account pool download failed: {{message}}",
+    "search_placeholder": "Search by file name, type, or status",
+    "type_filter": "Account type",
+    "type_all": "All types",
+    "stats": "Showing {{visible}} / {{total}} accounts",
+    "select_visible": "Select visible",
+    "clear_selection": "Clear selection",
+    "empty_title": "Account pool is empty",
+    "empty_desc": "Import account JSON files, then sync to view them here."
   },
   "system_info": {
     "title": "Management Center Info",

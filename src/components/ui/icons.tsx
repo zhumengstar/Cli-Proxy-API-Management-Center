@@ -458,3 +458,15 @@ export function IconSidebarSystem({ size = 20, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function IconSidebarAccountPool({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...sidebarSvgProps} width={size} height={size} {...props}>
+      <rect x="3" y="6" width="18" height="14" rx="2" />
+      <path d="M7 6V4h10v2" />
+      <path d="M7 11h10" />
+      <path d="M7 15h6" />
+      <circle cx="17" cy="15" r="2.2" fill="currentColor" fillOpacity="0.12" />
+    </svg>
+  );
+}

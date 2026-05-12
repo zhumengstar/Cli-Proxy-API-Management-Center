@@ -1,0 +1,447 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
+import { useNotificationStore } from '@/stores';
+import { authFilesApi } from '@/services/api';
+import {
+  ANTIGRAVITY_CONFIG,
+  CLAUDE_CONFIG,
+  CODEX_CONFIG,
+  GEMINI_CLI_CONFIG,
+  KIMI_CONFIG,
+  type QuotaConfig,
+} from '@/components/quota';
+import type { AuthFileItem } from '@/types/authFile';
+import { downloadBlob } from '@/utils/download';
+import { formatUnixTimestamp } from '@/utils/format';
+import { getStatusFromError } from '@/utils/quota';
+import { createZipBlob } from '@/utils/zip';
+import styles from './AccountPoolPage.module.scss';
+
+type AccountCheckStatus = 'idle' | 'loading' | 'success' | 'error' | 'unsupported';
+
+type AccountCheckResult = {
+  status: AccountCheckStatus;
+  message?: string;
+};
+
+const ACCOUNT_CHECK_CONCURRENCY = 5;
+const QUOTA_CONFIGS = [
+  CLAUDE_CONFIG,
+  ANTIGRAVITY_CONFIG,
+  CODEX_CONFIG,
+  GEMINI_CLI_CONFIG,
+  KIMI_CONFIG,
+] as Array<QuotaConfig<unknown, unknown>>;
+
+const isRuntimeOnly = (file: AuthFileItem): boolean => {
+  const value = file.runtimeOnly ?? file['runtime_only'];
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value.trim().toLowerCase() === 'true';
+  return false;
+};
+
+const getFileType = (file: AuthFileItem): string => String(file.type || file.provider || 'unknown');
+
+const getFileModifiedLabel = (file: AuthFileItem): string => {
+  const value = file.modified ?? file['modtime'] ?? file['updated_at'];
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return formatUnixTimestamp(value < 1e12 ? value : Math.round(value / 1000));
+  }
+  if (typeof value === 'string' && value.trim()) return value;
+  return '';
+};
+
+const buildDownloadFileName = () => {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return `account-pool-${stamp}.zip`;
+};
+
+const resolveQuotaConfig = (file: AuthFileItem): QuotaConfig<unknown, unknown> | null =>
+  QUOTA_CONFIGS.find((config) => config.filterFn(file)) ?? null;
+
+const normalizeJsonForDedupe = (rawText: string): string => {
+  const normalize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (!value || typeof value !== 'object') return value;
+
+    return Object.keys(value as Record<string, unknown>)
+      .sort()
+      .reduce<Record<string, unknown>>((result, key) => {
+        result[key] = normalize((value as Record<string, unknown>)[key]);
+        return result;
+      }, {});
+  };
+
+  try {
+    return JSON.stringify(normalize(JSON.parse(rawText)));
+  } catch {
+    return rawText.trim();
+  }
+};
+
+const hashText = async (value: string): Promise<string> => {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+};
+
+export function AccountPoolPage() {
+  const { t } = useTranslation();
+  const showNotification = useNotificationStore((state) => state.showNotification);
+  const [files, setFiles] = useState<AuthFileItem[]>([]);
+  const [fileContentCache, setFileContentCache] = useState<Record<string, string>>({});
+  const [checkResults, setCheckResults] = useState<Record<string, AccountCheckResult>>({});
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [selectedNames, setSelectedNames] = useState<string[]>([]);
+
+  const loadFiles = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await authFilesApi.list();
+      const importedFiles = response.files.filter((file) => !isRuntimeOnly(file));
+      const dedupedFiles: AuthFileItem[] = [];
+      const nextContentCache: Record<string, string> = {};
+      const seen = new Set<string>();
+
+      await Promise.all(
+        importedFiles.map(async (file) => {
+          try {
+            const rawText = await authFilesApi.downloadText(file.name);
+            const hash = await hashText(normalizeJsonForDedupe(rawText));
+            if (seen.has(hash)) return;
+            seen.add(hash);
+            nextContentCache[file.name] = rawText;
+            dedupedFiles.push(file);
+          } catch {
+            if (seen.has(file.name)) return;
+            seen.add(file.name);
+            dedupedFiles.push(file);
+          }
+        })
+      );
+
+      dedupedFiles.sort((left, right) => left.name.localeCompare(right.name));
+      setFiles(dedupedFiles);
+      setFileContentCache(nextContentCache);
+      setSelectedNames((current) =>
+        current.filter((name) => dedupedFiles.some((file) => file.name === name))
+      );
+      setCheckResults((current) => {
+        const next: Record<string, AccountCheckResult> = {};
+        dedupedFiles.forEach((file) => {
+          if (current[file.name]) {
+            next[file.name] = current[file.name];
+          }
+        });
+        return next;
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('notification.refresh_failed');
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    void loadFiles();
+  }, [loadFiles]);
+
+  const typeOptions = useMemo(() => {
+    const types = Array.from(new Set(files.map(getFileType))).sort((a, b) => a.localeCompare(b));
+    return [
+      { value: 'all', label: t('account_pool.type_all') },
+      ...types.map((type) => ({ value: type, label: type })),
+    ];
+  }, [files, t]);
+
+  const filteredFiles = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return files.filter((file) => {
+      if (typeFilter !== 'all' && getFileType(file) !== typeFilter) return false;
+      if (!term) return true;
+      return [file.name, getFileType(file), file.statusMessage, file.status]
+        .some((value) => String(value ?? '').toLowerCase().includes(term));
+    });
+  }, [files, search, typeFilter]);
+
+  const selectedSet = useMemo(() => new Set(selectedNames), [selectedNames]);
+  const visibleSelectedCount = filteredFiles.filter((file) => selectedSet.has(file.name)).length;
+  const allVisibleSelected = filteredFiles.length > 0 && visibleSelectedCount === filteredFiles.length;
+
+  const selectedFiles = useMemo(
+    () => files.filter((file) => selectedSet.has(file.name)),
+    [files, selectedSet]
+  );
+
+  const toggleOne = (name: string, checked: boolean) => {
+    setSelectedNames((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(name);
+      } else {
+        next.delete(name);
+      }
+      return Array.from(next);
+    });
+  };
+
+  const toggleVisible = (checked: boolean) => {
+    setSelectedNames((current) => {
+      const next = new Set(current);
+      filteredFiles.forEach((file) => {
+        if (checked) {
+          next.add(file.name);
+        } else {
+          next.delete(file.name);
+        }
+      });
+      return Array.from(next);
+    });
+  };
+
+  const handleDownloadSelected = async () => {
+    if (selectedFiles.length === 0) return;
+    setDownloading(true);
+    try {
+      const zipFiles = await Promise.all(
+        selectedFiles.map(async (file) => ({
+          name: file.name,
+          text: fileContentCache[file.name] ?? await authFilesApi.downloadText(file.name),
+        }))
+      );
+      const zipBlob = createZipBlob(zipFiles);
+      downloadBlob({ filename: buildDownloadFileName(), blob: zipBlob });
+      showNotification(
+        t('account_pool.download_success', { count: selectedFiles.length }),
+        'success'
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('common.unknown_error');
+      showNotification(t('account_pool.download_failed', { message }), 'error');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const detectAccounts = async (targets: AuthFileItem[]) => {
+    if (targets.length === 0 || checking) return;
+    setChecking(true);
+    let success = 0;
+    let failed = 0;
+    let unsupported = 0;
+
+    setCheckResults((current) => {
+      const next = { ...current };
+      targets.forEach((file) => {
+        next[file.name] = { status: 'loading' };
+      });
+      return next;
+    });
+
+    let cursor = 0;
+    const worker = async () => {
+      for (;;) {
+        const index = cursor;
+        cursor += 1;
+        const file = targets[index];
+        if (!file) return;
+
+        const config = resolveQuotaConfig(file);
+        if (!config) {
+          unsupported += 1;
+          setCheckResults((current) => ({
+            ...current,
+            [file.name]: {
+              status: 'unsupported',
+              message: t('account_pool.check_unsupported'),
+            },
+          }));
+          continue;
+        }
+
+        try {
+          await config.fetchQuota(file, t);
+          success += 1;
+          setCheckResults((current) => ({
+            ...current,
+            [file.name]: {
+              status: 'success',
+              message: t('account_pool.check_success'),
+            },
+          }));
+        } catch (err: unknown) {
+          failed += 1;
+          const message = err instanceof Error ? err.message : t('common.unknown_error');
+          const status = getStatusFromError(err);
+          setCheckResults((current) => ({
+            ...current,
+            [file.name]: {
+              status: 'error',
+              message: status ? `${status}: ${message}` : message,
+            },
+          }));
+        }
+      }
+    };
+
+    try {
+      await Promise.all(
+        Array.from({ length: Math.min(ACCOUNT_CHECK_CONCURRENCY, targets.length) }, () => worker())
+      );
+      showNotification(
+        t('account_pool.check_done', { success, failed, unsupported }),
+        failed > 0 ? 'warning' : 'success'
+      );
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className={styles.container}>
+      <div className={styles.pageHeader}>
+        <div>
+          <h1 className={styles.pageTitle}>{t('account_pool.title')}</h1>
+          <p className={styles.description}>{t('account_pool.description')}</p>
+        </div>
+        <div className={styles.headerActions}>
+          <Button variant="secondary" onClick={loadFiles} loading={loading}>
+            {t('account_pool.sync')}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => void detectAccounts(selectedFiles)}
+            loading={checking && selectedFiles.length > 0}
+            disabled={checking || selectedFiles.length === 0}
+          >
+            {t('account_pool.check_selected', { count: selectedFiles.length })}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => void detectAccounts(files)}
+            loading={checking && selectedFiles.length === 0}
+            disabled={checking || files.length === 0}
+          >
+            {t('account_pool.check_all')}
+          </Button>
+          <Button
+            onClick={handleDownloadSelected}
+            loading={downloading}
+            disabled={selectedFiles.length === 0 || downloading}
+          >
+            {t('account_pool.download_selected', { count: selectedFiles.length })}
+          </Button>
+        </div>
+      </div>
+
+      {error && <div className={styles.errorBox}>{error}</div>}
+
+      <Card>
+        <div className={styles.toolbar}>
+          <div className={styles.filters}>
+            <Input
+              className={styles.searchInput}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t('account_pool.search_placeholder')}
+            />
+            <Select
+              className={styles.typeSelect}
+              value={typeFilter}
+              options={typeOptions}
+              onChange={setTypeFilter}
+              ariaLabel={t('account_pool.type_filter')}
+            />
+            <span className={styles.stats}>
+              {t('account_pool.stats', { visible: filteredFiles.length, total: files.length })}
+            </span>
+          </div>
+          <div className={styles.selectionActions}>
+            <SelectionCheckbox
+              checked={allVisibleSelected}
+              onChange={toggleVisible}
+              disabled={filteredFiles.length === 0}
+              label={t('account_pool.select_visible')}
+            />
+            <Button variant="ghost" size="sm" onClick={() => setSelectedNames([])}>
+              {t('account_pool.clear_selection')}
+            </Button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className={styles.hint}>{t('common.loading')}</div>
+        ) : filteredFiles.length === 0 ? (
+          <EmptyState
+            title={t('account_pool.empty_title')}
+            description={t('account_pool.empty_desc')}
+          />
+        ) : (
+          <div className={styles.poolGrid}>
+            {filteredFiles.map((file) => {
+              const checked = selectedSet.has(file.name);
+              const type = getFileType(file);
+              const modifiedLabel = getFileModifiedLabel(file);
+              const statusMessage = String(file.statusMessage || file['status_message'] || '');
+              const checkResult = checkResults[file.name];
+              return (
+                <div
+                  key={file.name}
+                  className={`${styles.poolCard} ${checked ? styles.poolCardSelected : ''}`}
+                >
+                  <div className={styles.cardTop}>
+                    <SelectionCheckbox
+                      checked={checked}
+                      onChange={(value) => toggleOne(file.name, value)}
+                      ariaLabel={file.name}
+                    />
+                    <div className={styles.cardMain}>
+                      <div className={styles.fileName}>{file.name}</div>
+                      <div className={styles.metaRow}>
+                        <span className={styles.typeBadge}>{type}</span>
+                        {modifiedLabel && <span className={styles.muted}>{modifiedLabel}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  {checkResult && (
+                    <div
+                      className={`${styles.checkLine} ${
+                        checkResult.status === 'success'
+                          ? styles.checkSuccess
+                          : checkResult.status === 'loading'
+                            ? styles.checkLoading
+                            : checkResult.status === 'unsupported'
+                              ? styles.checkUnsupported
+                              : styles.checkError
+                      }`}
+                    >
+                      {checkResult.status === 'loading'
+                        ? t('account_pool.checking')
+                        : checkResult.message}
+                    </div>
+                  )}
+                  {statusMessage && <div className={styles.statusLine}>{statusMessage}</div>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}

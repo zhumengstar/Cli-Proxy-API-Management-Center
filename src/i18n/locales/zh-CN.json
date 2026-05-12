@@ -117,7 +117,8 @@
     "quota_management": "配额管理",
     "config_management": "配置面板",
     "logs": "日志查看",
-    "system_info": "中心信息"
+    "system_info": "中心信息",
+    "account_pool": "账号池"
   },
   "dashboard": {
     "title": "仪表盘",
@@ -519,6 +520,7 @@
     "problem_filter_label": "问题筛选",
     "problem_filter_only": "仅显示有问题凭证",
     "disabled_filter_only": "仅显示已停用凭证",
+    "normal_filter_only": "仅显示正常凭证",
     "display_options_label": "显示选项",
     "compact_mode_label": "简略模式",
     "sort_label": "排序",
@@ -1222,7 +1224,30 @@
     "refresh_files": "刷新认证文件",
     "refresh_files_and_quota": "刷新认证文件&额度",
     "refresh_all_credentials": "刷新全部凭证",
+    "page_size_label": "每页数量",
     "card_idle_hint": "请使用顶部“刷新全部凭证”按钮获取最新额度。"
+  },
+  "account_pool": {
+    "title": "账号池",
+    "description": "同步所有已导入的账号 JSON，选择后可打包下载。",
+    "sync": "同步账号 JSON",
+    "check_selected": "检测选中 ({{count}})",
+    "check_all": "检测全部",
+    "checking": "正在检测账号状态...",
+    "check_success": "检测通过",
+    "check_unsupported": "该账号类型暂不支持检测",
+    "check_done": "检测完成：通过 {{success}}，失败 {{failed}}，不支持 {{unsupported}}",
+    "download_selected": "下载选中 ({{count}})",
+    "download_success": "已打包下载 {{count}} 个账号 JSON",
+    "download_failed": "账号池下载失败：{{message}}",
+    "search_placeholder": "搜索文件名、类型或状态",
+    "type_filter": "账号类型",
+    "type_all": "全部类型",
+    "stats": "显示 {{visible}} / {{total}} 个账号",
+    "select_visible": "选择当前显示",
+    "clear_selection": "清空选择",
+    "empty_title": "账号池为空",
+    "empty_desc": "导入账号 JSON 后，点击同步即可在这里查看。"
   },
   "system_info": {
     "title": "管理中心信息",
