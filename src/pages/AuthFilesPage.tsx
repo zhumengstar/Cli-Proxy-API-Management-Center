@@ -707,7 +707,7 @@ export function AuthFilesPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".json,application/json"
+              accept=".json,.zip,application/json,application/zip,application/x-zip-compressed"
               multiple
               style={{ display: 'none' }}
               onChange={handleFileChange}

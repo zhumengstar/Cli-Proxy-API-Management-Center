@@ -13,6 +13,11 @@ import {
   isRuntimeOnlyAuthFile,
 } from '@/features/authFiles/constants';
 
+const isSupportedAuthUploadFile = (file: File): boolean => {
+  const name = file.name.trim().toLowerCase();
+  return name.endsWith('.json') || name.endsWith('.zip');
+};
+
 type DeleteAllOptions = {
   filter: string;
   problemOnly: boolean;
@@ -187,7 +192,7 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
       const oversizedFiles: string[] = [];
 
       filesToUpload.forEach((file) => {
-        if (!file.name.endsWith('.json')) {
+        if (!isSupportedAuthUploadFile(file)) {
           invalidFiles.push(file.name);
           return;
         }
@@ -219,7 +224,7 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
         const successCount = result.uploaded;
 
         if (successCount > 0) {
-          const suffix = validFiles.length > 1 ? ` (${successCount}/${validFiles.length})` : '';
+          const suffix = ` (${successCount})`;
           showNotification(
             `${t('auth_files.upload_success')}${suffix}`,
             result.failed.length ? 'warning' : 'success'

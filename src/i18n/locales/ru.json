@@ -493,7 +493,7 @@
     "delete_problem_filtered_confirm": "Удалить все проблемные файлы авторизации {{type}}? Это действие нельзя отменить!",
     "delete_filtered_result_button": "Удалить результаты фильтра",
     "delete_filtered_result_confirm": "Удалить файлы авторизации из текущих результатов фильтра? Это действие нельзя отменить!",
-    "upload_error_json": "Допустимы только файлы JSON",
+    "upload_error_json": "Допустимы только файлы JSON или ZIP",
     "upload_error_size": "Размер файла не может превышать {{maxSize}}",
     "upload_success": "Файл успешно загружен",
     "download_success": "Файл успешно скачан",
