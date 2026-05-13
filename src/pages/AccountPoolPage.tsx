@@ -133,7 +133,7 @@ export function AccountPoolPage() {
     setSelectedNames((current) =>
       current.filter((name) => nextRecords.some((record) => record.file.name === name))
     );
-    pruneCheckResults(nextRecords.map((record) => record.file.name));
+    pruneCheckResults(nextRecords);
     return nextRecords;
   }, [pruneCheckResults]);
 

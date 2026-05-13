@@ -7,6 +7,13 @@ export type AccountCheckResult = {
   message?: string;
 };
 
+type AccountCheckRecordRef = {
+  file: {
+    name: string;
+  };
+  hash: string;
+};
+
 type AccountCheckSummary = {
   total: number;
   done: number;
@@ -19,13 +26,16 @@ interface AccountPoolCheckState {
   activeRunId: string | null;
   checking: boolean;
   results: Record<string, AccountCheckResult>;
+  resultHashes: Record<string, string>;
   summary: AccountCheckSummary;
   beginCheck: (names: string[]) => string | null;
   setResult: (runId: string, name: string, result: AccountCheckResult) => void;
   finishCheck: (runId: string) => AccountCheckSummary | null;
-  pruneResults: (names: string[]) => void;
+  pruneResults: (records: AccountCheckRecordRef[]) => void;
   clearResults: () => void;
 }
+
+const ACCOUNT_POOL_CHECK_RESULTS_STORAGE_KEY = 'cli-proxy-account-pool-check-results';
 
 const emptySummary = (): AccountCheckSummary => ({
   total: 0,
@@ -37,10 +47,75 @@ const emptySummary = (): AccountCheckSummary => ({
 
 const createRunId = () => `account-pool-check-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object';
+
+const readPersistedResults = (): Pick<AccountPoolCheckState, 'results' | 'resultHashes'> => {
+  if (typeof window === 'undefined') return { results: {}, resultHashes: {} };
+  try {
+    const raw = window.localStorage.getItem(ACCOUNT_POOL_CHECK_RESULTS_STORAGE_KEY);
+    if (!raw) return { results: {}, resultHashes: {} };
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed)) return { results: {}, resultHashes: {} };
+
+    const results: Record<string, AccountCheckResult> = {};
+    if (isRecord(parsed.results)) {
+      Object.entries(parsed.results).forEach(([name, value]) => {
+        if (!isRecord(value)) return;
+        const status = value.status;
+        if (
+          status !== 'success' &&
+          status !== 'error' &&
+          status !== 'unsupported' &&
+          status !== 'idle'
+        ) {
+          return;
+        }
+        results[name] = {
+          status,
+          message: typeof value.message === 'string' ? value.message : undefined,
+        };
+      });
+    }
+
+    const resultHashes: Record<string, string> = {};
+    if (isRecord(parsed.resultHashes)) {
+      Object.entries(parsed.resultHashes).forEach(([name, value]) => {
+        if (typeof value === 'string' && value.trim()) {
+          resultHashes[name] = value;
+        }
+      });
+    }
+
+    return { results, resultHashes };
+  } catch {
+    return { results: {}, resultHashes: {} };
+  }
+};
+
+const writePersistedResults = (
+  results: Record<string, AccountCheckResult>,
+  resultHashes: Record<string, string>
+) => {
+  if (typeof window === 'undefined') return;
+  const stableResults: Record<string, AccountCheckResult> = {};
+  Object.entries(results).forEach(([name, result]) => {
+    if (result.status === 'loading') return;
+    stableResults[name] = result;
+  });
+  window.localStorage.setItem(
+    ACCOUNT_POOL_CHECK_RESULTS_STORAGE_KEY,
+    JSON.stringify({ results: stableResults, resultHashes })
+  );
+};
+
+const initialPersisted = readPersistedResults();
+
 export const useAccountPoolCheckStore = create<AccountPoolCheckState>((set, get) => ({
   activeRunId: null,
   checking: false,
-  results: {},
+  results: initialPersisted.results,
+  resultHashes: initialPersisted.resultHashes,
   summary: emptySummary(),
 
   beginCheck: (names) => {
@@ -85,13 +160,15 @@ export const useAccountPoolCheckStore = create<AccountPoolCheckState>((set, get)
         nextSummary.failed += 1;
       }
 
-      return {
+      const nextState = {
         results: {
           ...current.results,
           [name]: result
         },
         summary: nextSummary
       };
+      writePersistedResults(nextState.results, current.resultHashes);
+      return nextState;
     });
   },
 
@@ -107,24 +184,38 @@ export const useAccountPoolCheckStore = create<AccountPoolCheckState>((set, get)
     return summary;
   },
 
-  pruneResults: (names) => {
-    const allowed = new Set(names);
+  pruneResults: (records) => {
+    const allowedHashes = new Map<string, string>();
+    records.forEach((record) => {
+      if (record.file.name && record.hash) {
+        allowedHashes.set(record.file.name, record.hash);
+      }
+    });
     set((state) => {
       const next: Record<string, AccountCheckResult> = {};
+      const nextHashes: Record<string, string> = {};
       Object.entries(state.results).forEach(([name, result]) => {
-        if (allowed.has(name)) {
+        const hash = allowedHashes.get(name);
+        if (hash && (!state.resultHashes[name] || state.resultHashes[name] === hash)) {
           next[name] = result;
         }
       });
-      return { results: next };
+      allowedHashes.forEach((hash, name) => {
+        nextHashes[name] = hash;
+      });
+      writePersistedResults(next, nextHashes);
+      return { results: next, resultHashes: nextHashes };
     });
   },
 
-  clearResults: () =>
+  clearResults: () => {
+    writePersistedResults({}, {});
     set({
       activeRunId: null,
       checking: false,
       results: {},
+      resultHashes: {},
       summary: emptySummary()
-    })
+    });
+  }
 }));
