@@ -494,6 +494,7 @@
     "delete_filtered_result_button": "删除筛选结果",
     "delete_filtered_result_confirm": "确定要删除当前筛选结果中的认证文件吗？此操作不可恢复！",
     "upload_error_json": "只能上传 JSON 或 ZIP 文件",
+    "upload_error_not_found": "上传接口不存在，请确认服务器地址为 CLI Proxy API 后端地址（例如 http://127.0.0.1:8317）并已启用管理 API",
     "upload_error_size": "文件大小不能超过 {{maxSize}}",
     "upload_success": "文件上传成功",
     "download_success": "文件下载成功",

@@ -20,6 +20,9 @@ export const computeApiUrl = (base: string): string => {
 export const detectApiBaseFromLocation = (): string => {
   try {
     const { protocol, hostname, port } = window.location;
+    if (isLocalhost(hostname) && port && port !== String(DEFAULT_API_PORT)) {
+      return normalizeApiBase(`${protocol}//${hostname}:${DEFAULT_API_PORT}`);
+    }
     const normalizedPort = port ? `:${port}` : '';
     return normalizeApiBase(`${protocol}//${hostname}${normalizedPort}`);
   } catch (error) {

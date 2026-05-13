@@ -494,6 +494,7 @@
     "delete_filtered_result_button": "Delete filtered results",
     "delete_filtered_result_confirm": "Are you sure you want to delete auth files in the current filtered results? This operation cannot be undone!",
     "upload_error_json": "Only JSON or ZIP files are allowed",
+    "upload_error_not_found": "Upload endpoint was not found. Check that the server address points to the CLI Proxy API backend, for example http://127.0.0.1:8317, and that the Management API is enabled.",
     "upload_error_size": "File size cannot exceed {{maxSize}}",
     "upload_success": "File uploaded successfully",
     "download_success": "File downloaded successfully",

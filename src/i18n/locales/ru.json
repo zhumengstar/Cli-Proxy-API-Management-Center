@@ -494,6 +494,7 @@
     "delete_filtered_result_button": "Удалить результаты фильтра",
     "delete_filtered_result_confirm": "Удалить файлы авторизации из текущих результатов фильтра? Это действие нельзя отменить!",
     "upload_error_json": "Допустимы только файлы JSON или ZIP",
+    "upload_error_not_found": "Эндпоинт загрузки не найден. Проверьте, что адрес сервера указывает на backend CLI Proxy API, например http://127.0.0.1:8317, и что Management API включён.",
     "upload_error_size": "Размер файла не может превышать {{maxSize}}",
     "upload_success": "Файл успешно загружен",
     "download_success": "Файл успешно скачан",

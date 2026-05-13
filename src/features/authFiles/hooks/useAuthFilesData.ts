@@ -18,6 +18,12 @@ const isSupportedAuthUploadFile = (file: File): boolean => {
   return name.endsWith('.json') || name.endsWith('.zip');
 };
 
+const getErrorStatus = (err: unknown): number | undefined => {
+  if (!err || typeof err !== 'object') return undefined;
+  const value = (err as { status?: unknown }).status;
+  return typeof value === 'number' ? value : undefined;
+};
+
 type DeleteAllOptions = {
   filter: string;
   problemOnly: boolean;
@@ -239,7 +245,12 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
           showNotification(`${t('notification.upload_failed')}: ${details}`, 'error');
         }
       } catch (err: unknown) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        const errorMessage =
+          getErrorStatus(err) === 404
+            ? t('auth_files.upload_error_not_found')
+            : err instanceof Error
+              ? err.message
+              : 'Unknown error';
         showNotification(`${t('notification.upload_failed')}: ${errorMessage}`, 'error');
       } finally {
         setUploading(false);
