@@ -38,6 +38,8 @@ const DEFAULT_ACCOUNT_POOL_CHECK_CONCURRENCY = 5;
 const MIN_ACCOUNT_POOL_PAGE_SIZE = 1;
 const MAX_ACCOUNT_POOL_PAGE_SIZE = 200;
 const DEFAULT_ACCOUNT_POOL_PAGE_SIZE = 24;
+const DEFAULT_ACCOUNT_POOL_SORT_MODE = 'check';
+const DEFAULT_ACCOUNT_POOL_PLAN_FILTER = 'all';
 const QUOTA_CONFIGS = [
   CLAUDE_CONFIG,
   ANTIGRAVITY_CONFIG,
@@ -55,6 +57,176 @@ const getFileModifiedLabel = (file: AuthFileItem): string => {
   }
   if (typeof value === 'string' && value.trim()) return value;
   return '';
+};
+
+const parseDateValue = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value < 1e12 ? value * 1000 : value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) return numeric < 1e12 ? numeric * 1000 : numeric;
+    const parsed = Date.parse(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const firstDateFromRecords = (records: Array<Record<string, unknown> | null>): number | null => {
+  const keys = [
+    'registered_at',
+    'registeredAt',
+    'registration_time',
+    'registrationTime',
+    'register_time',
+    'registerTime',
+    'signup_at',
+    'signupAt',
+    'sign_up_at',
+    'signUpAt',
+    'created_at',
+    'createdAt',
+    'account_created_at',
+    'accountCreatedAt',
+  ];
+  for (const record of records) {
+    if (!record) continue;
+    for (const key of keys) {
+      const value = parseDateValue(record[key]);
+      if (value !== null) return value;
+    }
+  }
+  return null;
+};
+
+const getNestedRecord = (value: unknown, key: string): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object') return null;
+  const nested = (value as Record<string, unknown>)[key];
+  return nested && typeof nested === 'object' && !Array.isArray(nested)
+    ? (nested as Record<string, unknown>)
+    : null;
+};
+
+const getRegistrationTime = (
+  file: AuthFileItem,
+  fileContentCache: Record<string, string>
+): number | null => {
+  const metadata =
+    file.metadata && typeof file.metadata === 'object' && !Array.isArray(file.metadata)
+      ? (file.metadata as Record<string, unknown>)
+      : null;
+  const attributes =
+    file.attributes && typeof file.attributes === 'object' && !Array.isArray(file.attributes)
+      ? (file.attributes as Record<string, unknown>)
+      : null;
+  const idToken =
+    file.id_token && typeof file.id_token === 'object' && !Array.isArray(file.id_token)
+      ? (file.id_token as Record<string, unknown>)
+      : null;
+
+  let parsedContent: Record<string, unknown> | null = null;
+  const rawText = fileContentCache[file.name];
+  if (rawText) {
+    try {
+      const parsed = JSON.parse(rawText) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        parsedContent = parsed as Record<string, unknown>;
+      }
+    } catch {
+      parsedContent = null;
+    }
+  }
+
+  return firstDateFromRecords([
+    file,
+    metadata,
+    attributes,
+    idToken,
+    parsedContent,
+    getNestedRecord(parsedContent, 'account'),
+    getNestedRecord(parsedContent, 'user'),
+    getNestedRecord(parsedContent, 'metadata'),
+    getNestedRecord(parsedContent, 'profile'),
+  ]);
+};
+
+const getPlanValue = (
+  file: AuthFileItem,
+  fileContentCache: Record<string, string>
+): string => {
+  const metadata =
+    file.metadata && typeof file.metadata === 'object' && !Array.isArray(file.metadata)
+      ? (file.metadata as Record<string, unknown>)
+      : null;
+  const attributes =
+    file.attributes && typeof file.attributes === 'object' && !Array.isArray(file.attributes)
+      ? (file.attributes as Record<string, unknown>)
+      : null;
+  const idToken =
+    file.id_token && typeof file.id_token === 'object' && !Array.isArray(file.id_token)
+      ? (file.id_token as Record<string, unknown>)
+      : null;
+
+  let parsedContent: Record<string, unknown> | null = null;
+  const rawText = fileContentCache[file.name];
+  if (rawText) {
+    try {
+      const parsed = JSON.parse(rawText) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        parsedContent = parsed as Record<string, unknown>;
+      }
+    } catch {
+      parsedContent = null;
+    }
+  }
+
+  const keys = ['plan_type', 'planType', 'plan', 'tier', 'account_type', 'accountType'];
+  const records = [
+    file,
+    metadata,
+    attributes,
+    idToken,
+    parsedContent,
+    getNestedRecord(parsedContent, 'account'),
+    getNestedRecord(parsedContent, 'user'),
+    getNestedRecord(parsedContent, 'metadata'),
+    getNestedRecord(parsedContent, 'profile'),
+  ];
+  for (const record of records) {
+    if (!record) continue;
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim().toLowerCase();
+      }
+    }
+  }
+  return '';
+};
+
+const matchesPlanFilter = (
+  file: AuthFileItem,
+  fileContentCache: Record<string, string>,
+  planFilter: string
+): boolean => {
+  if (planFilter === DEFAULT_ACCOUNT_POOL_PLAN_FILTER) return true;
+  const plan = getPlanValue(file, fileContentCache);
+  if (!plan) return false;
+  if (planFilter === 'free') return plan.includes('free');
+  if (planFilter === 'plus') return plan.includes('plus');
+  if (planFilter === 'pro') return plan.includes('pro') || plan.includes('max');
+  return true;
+};
+
+const getModifiedTime = (file: AuthFileItem): number | null => {
+  const candidates = [file.modified, file['modtime'], file['updated_at'], file.updatedAt];
+  for (const candidate of candidates) {
+    const value = parseDateValue(candidate);
+    if (value !== null) return value;
+  }
+  return null;
 };
 
 const buildDownloadFileName = () => {
@@ -91,6 +263,17 @@ const getCheckSortRank = (status?: string): number => {
   return 4;
 };
 
+const compareOptionalTime = (
+  left: number | null,
+  right: number | null,
+  direction: 'asc' | 'desc'
+): number => {
+  if (left === null && right === null) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  return direction === 'asc' ? left - right : right - left;
+};
+
 const applyAccountPoolRecords = (
   records: AccountPoolRecord[],
   setFiles: (files: AuthFileItem[]) => void,
@@ -120,6 +303,8 @@ export function AccountPoolPage() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [planFilter, setPlanFilter] = useState(DEFAULT_ACCOUNT_POOL_PLAN_FILTER);
+  const [sortMode, setSortMode] = useState(DEFAULT_ACCOUNT_POOL_SORT_MODE);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_ACCOUNT_POOL_PAGE_SIZE);
   const [pageSizeInput, setPageSizeInput] = useState(String(DEFAULT_ACCOUNT_POOL_PAGE_SIZE));
@@ -185,23 +370,61 @@ export function AccountPoolPage() {
     ];
   }, [files, t]);
 
+  const sortOptions = useMemo(
+    () => [
+      { value: 'check', label: t('account_pool.sort_check') },
+      { value: 'registered_desc', label: t('account_pool.sort_registered_desc') },
+      { value: 'registered_asc', label: t('account_pool.sort_registered_asc') },
+      { value: 'modified_desc', label: t('account_pool.sort_modified_desc') },
+      { value: 'modified_asc', label: t('account_pool.sort_modified_asc') },
+    ],
+    [t]
+  );
+
+  const planOptions = useMemo(
+    () => [
+      { value: 'all', label: t('account_pool.plan_all') },
+      { value: 'free', label: t('account_pool.plan_free') },
+      { value: 'plus', label: t('account_pool.plan_plus') },
+      { value: 'pro', label: t('account_pool.plan_pro') },
+    ],
+    [t]
+  );
+
   const filteredFiles = useMemo(() => {
     const term = search.trim().toLowerCase();
     return files
       .filter((file) => {
         if (typeFilter !== 'all' && getFileType(file) !== typeFilter) return false;
+        if (!matchesPlanFilter(file, fileContentCache, planFilter)) return false;
         if (!term) return true;
         return [file.name, getFileType(file), file.statusMessage, file.status]
           .some((value) => String(value ?? '').toLowerCase().includes(term));
       })
       .sort((left, right) => {
+        if (sortMode === 'registered_desc' || sortMode === 'registered_asc') {
+          const timeDiff = compareOptionalTime(
+            getRegistrationTime(left, fileContentCache),
+            getRegistrationTime(right, fileContentCache),
+            sortMode === 'registered_asc' ? 'asc' : 'desc'
+          );
+          if (timeDiff !== 0) return timeDiff;
+        } else if (sortMode === 'modified_desc' || sortMode === 'modified_asc') {
+          const timeDiff = compareOptionalTime(
+            getModifiedTime(left),
+            getModifiedTime(right),
+            sortMode === 'modified_asc' ? 'asc' : 'desc'
+          );
+          if (timeDiff !== 0) return timeDiff;
+        }
+
         const rankDiff =
           getCheckSortRank(checkResults[left.name]?.status) -
           getCheckSortRank(checkResults[right.name]?.status);
         if (rankDiff !== 0) return rankDiff;
         return left.name.localeCompare(right.name);
       });
-  }, [checkResults, files, search, typeFilter]);
+  }, [checkResults, fileContentCache, files, planFilter, search, sortMode, typeFilter]);
 
   const selectedSet = useMemo(() => new Set(selectedNames), [selectedNames]);
   const totalPages = Math.max(1, Math.ceil(filteredFiles.length / pageSize));
@@ -228,7 +451,7 @@ export function AccountPoolPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, typeFilter]);
+  }, [planFilter, search, sortMode, typeFilter]);
 
   const commitPageSizeInput = (rawValue: string) => {
     const trimmed = rawValue.trim();
@@ -555,6 +778,20 @@ export function AccountPoolPage() {
               options={typeOptions}
               onChange={setTypeFilter}
               ariaLabel={t('account_pool.type_filter')}
+            />
+            <Select
+              className={styles.planSelect}
+              value={planFilter}
+              options={planOptions}
+              onChange={setPlanFilter}
+              ariaLabel={t('account_pool.plan_filter')}
+            />
+            <Select
+              className={styles.sortSelect}
+              value={sortMode}
+              options={sortOptions}
+              onChange={setSortMode}
+              ariaLabel={t('account_pool.sort_filter')}
             />
             <span className={styles.stats}>
               {t('account_pool.stats', { visible: filteredFiles.length, total: files.length })}
