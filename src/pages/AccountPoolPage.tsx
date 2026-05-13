@@ -338,6 +338,18 @@ const parseQuotaDetail = (line: string): {
   };
 };
 
+const formatQuotaResetMeta = (
+  t: ReturnType<typeof useTranslation>['t'],
+  value: string
+): string => {
+  if (!value || value === '-') return '';
+  if (value.includes('重置') || value.toLowerCase().includes('reset')) return value;
+  return t('quota_management.reset_time_label', {
+    time: value,
+    defaultValue: `Reset time: ${value}`,
+  });
+};
+
 const getQuotaSummary = (
   value: unknown,
   t: ReturnType<typeof useTranslation>['t']
@@ -1243,7 +1255,9 @@ export function AccountPoolPage() {
                                       </div>
                                     )}
                                     {quota.reset && (
-                                      <div className={styles.quotaReset}>{quota.reset}</div>
+                                      <div className={styles.quotaReset}>
+                                        {formatQuotaResetMeta(t, quota.reset)}
+                                      </div>
                                     )}
                                   </div>
                                 );

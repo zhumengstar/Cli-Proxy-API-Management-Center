@@ -443,6 +443,8 @@
 .quotaReset {
   color: var(--text-tertiary);
   font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .errorBox {

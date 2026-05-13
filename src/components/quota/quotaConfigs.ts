@@ -719,7 +719,7 @@ const renderAntigravityItems = (
           'div',
           { className: styleMap.quotaMeta },
           h('span', { className: styleMap.quotaPercent }, `${percent}%`),
-          h('span', { className: styleMap.quotaReset }, resetLabel)
+          h('span', { className: styleMap.quotaReset }, formatResetMeta(t, resetLabel))
         )
       ),
       h(QuotaProgressBar, {
@@ -733,6 +733,15 @@ const renderAntigravityItems = (
 
 const PREMIUM_GEMINI_CLI_TIER_IDS = new Set(['g1-ultra-tier']);
 const PREMIUM_CODEX_PLAN_TYPES = new Set(['pro', 'prolite', 'pro-lite', 'pro_lite']);
+
+const formatResetMeta = (t: TFunction, value: string): string => {
+  if (!value || value === '-') return value;
+  if (value.includes('重置') || value.toLowerCase().includes('reset')) return value;
+  return t('quota_management.reset_time_label', {
+    time: value,
+    defaultValue: `Reset time: ${value}`,
+  });
+};
 
 const renderCodexItems = (
   quota: CodexQuotaState,
@@ -801,7 +810,7 @@ const renderCodexItems = (
             'div',
             { className: styleMap.quotaMeta },
             h('span', { className: styleMap.quotaPercent }, percentLabel),
-            h('span', { className: styleMap.quotaReset }, window.resetLabel)
+            h('span', { className: styleMap.quotaReset }, formatResetMeta(t, window.resetLabel))
           )
         ),
         h(QuotaProgressBar, {
@@ -896,7 +905,7 @@ const renderGeminiCliItems = (
             remainingAmountLabel
               ? h('span', { className: styleMap.quotaAmount }, remainingAmountLabel)
               : null,
-            h('span', { className: styleMap.quotaReset }, resetLabel)
+            h('span', { className: styleMap.quotaReset }, formatResetMeta(t, resetLabel))
           )
         ),
         h(QuotaProgressBar, {
@@ -1099,7 +1108,7 @@ const renderClaudeItems = (
             'div',
             { className: styleMap.quotaMeta },
             h('span', { className: styleMap.quotaPercent }, percentLabel),
-            h('span', { className: styleMap.quotaReset }, window.resetLabel)
+            h('span', { className: styleMap.quotaReset }, formatResetMeta(t, window.resetLabel))
           )
         ),
         h(QuotaProgressBar, {
