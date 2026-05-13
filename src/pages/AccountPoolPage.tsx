@@ -31,7 +31,10 @@ import {
 } from '@/utils/accountPool';
 import styles from './AccountPoolPage.module.scss';
 
-const ACCOUNT_CHECK_CONCURRENCY = 5;
+const ACCOUNT_POOL_CHECK_CONCURRENCY_STORAGE_KEY = 'cli-proxy-account-pool-check-concurrency';
+const MIN_ACCOUNT_POOL_CHECK_CONCURRENCY = 1;
+const MAX_ACCOUNT_POOL_CHECK_CONCURRENCY = 20;
+const DEFAULT_ACCOUNT_POOL_CHECK_CONCURRENCY = 5;
 const MIN_ACCOUNT_POOL_PAGE_SIZE = 1;
 const MAX_ACCOUNT_POOL_PAGE_SIZE = 200;
 const DEFAULT_ACCOUNT_POOL_PAGE_SIZE = 24;
@@ -61,6 +64,21 @@ const buildDownloadFileName = () => {
 
 const clampAccountPoolPageSize = (value: number): number =>
   Math.min(MAX_ACCOUNT_POOL_PAGE_SIZE, Math.max(MIN_ACCOUNT_POOL_PAGE_SIZE, Math.round(value)));
+
+const clampAccountPoolCheckConcurrency = (value: number): number =>
+  Math.min(
+    MAX_ACCOUNT_POOL_CHECK_CONCURRENCY,
+    Math.max(MIN_ACCOUNT_POOL_CHECK_CONCURRENCY, Math.round(value))
+  );
+
+const readStoredCheckConcurrency = (): number => {
+  if (typeof window === 'undefined') return DEFAULT_ACCOUNT_POOL_CHECK_CONCURRENCY;
+  const raw = window.localStorage.getItem(ACCOUNT_POOL_CHECK_CONCURRENCY_STORAGE_KEY);
+  if (!raw) return DEFAULT_ACCOUNT_POOL_CHECK_CONCURRENCY;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_ACCOUNT_POOL_CHECK_CONCURRENCY;
+  return clampAccountPoolCheckConcurrency(parsed);
+};
 
 const resolveQuotaConfig = (file: AuthFileItem): QuotaConfig<unknown, unknown> | null =>
   QUOTA_CONFIGS.find((config) => config.filterFn(file)) ?? null;
@@ -105,6 +123,8 @@ export function AccountPoolPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_ACCOUNT_POOL_PAGE_SIZE);
   const [pageSizeInput, setPageSizeInput] = useState(String(DEFAULT_ACCOUNT_POOL_PAGE_SIZE));
+  const [checkConcurrency, setCheckConcurrency] = useState(readStoredCheckConcurrency);
+  const [checkConcurrencyInput, setCheckConcurrencyInput] = useState(String(checkConcurrency));
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
 
   const applyRecords = useCallback((records: AccountPoolRecord[]) => {
@@ -241,6 +261,44 @@ export function AccountPoolPage() {
 
     setPageSize(clampAccountPoolPageSize(parsed));
     setPage(1);
+  };
+
+  const commitCheckConcurrencyInput = (rawValue: string) => {
+    const trimmed = rawValue.trim();
+    if (!trimmed) {
+      setCheckConcurrencyInput(String(checkConcurrency));
+      return;
+    }
+
+    const value = Number(trimmed);
+    if (!Number.isFinite(value)) {
+      setCheckConcurrencyInput(String(checkConcurrency));
+      return;
+    }
+
+    const next = clampAccountPoolCheckConcurrency(value);
+    setCheckConcurrency(next);
+    setCheckConcurrencyInput(String(next));
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ACCOUNT_POOL_CHECK_CONCURRENCY_STORAGE_KEY, String(next));
+    }
+  };
+
+  const handleCheckConcurrencyChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const rawValue = event.currentTarget.value;
+    setCheckConcurrencyInput(rawValue);
+
+    const trimmed = rawValue.trim();
+    if (!trimmed) return;
+
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) return;
+
+    const next = clampAccountPoolCheckConcurrency(parsed);
+    setCheckConcurrency(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ACCOUNT_POOL_CHECK_CONCURRENCY_STORAGE_KEY, String(next));
+    }
   };
 
   const toggleOne = (name: string, checked: boolean) => {
@@ -400,7 +458,7 @@ export function AccountPoolPage() {
 
     try {
       await Promise.all(
-        Array.from({ length: Math.min(ACCOUNT_CHECK_CONCURRENCY, targets.length) }, () => worker())
+        Array.from({ length: Math.min(checkConcurrency, targets.length) }, () => worker())
       );
       const summary = finishCheck(runId);
       if (!summary) return;
@@ -512,6 +570,25 @@ export function AccountPoolPage() {
                 value={pageSizeInput}
                 onChange={handlePageSizeChange}
                 onBlur={(event) => commitPageSizeInput(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+            </label>
+            <label className={styles.pageSizeControl}>
+              <span>{t('account_pool.check_concurrency')}</span>
+              <input
+                className={styles.checkConcurrencyInput}
+                type="number"
+                min={MIN_ACCOUNT_POOL_CHECK_CONCURRENCY}
+                max={MAX_ACCOUNT_POOL_CHECK_CONCURRENCY}
+                step={1}
+                value={checkConcurrencyInput}
+                disabled={checking}
+                onChange={handleCheckConcurrencyChange}
+                onBlur={(event) => commitCheckConcurrencyInput(event.currentTarget.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
                     event.currentTarget.blur();

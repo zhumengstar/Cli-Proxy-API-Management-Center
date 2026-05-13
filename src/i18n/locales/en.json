@@ -1239,6 +1239,7 @@
     "check_success": "Check passed",
     "check_unsupported": "This account type does not support checks yet",
     "check_done": "Check complete: {{success}} passed, {{failed}} failed, {{unsupported}} unsupported",
+    "check_concurrency": "Check concurrency",
     "download_selected": "Download selected ({{count}})",
     "download_archive": "Download server account pool ZIP",
     "download_archive_success": "Downloaded server account pool ZIP",

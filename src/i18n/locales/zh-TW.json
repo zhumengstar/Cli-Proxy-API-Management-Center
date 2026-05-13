@@ -1265,6 +1265,7 @@
     "check_success": "檢測通過",
     "check_unsupported": "此帳號類型暫不支援檢測",
     "check_done": "檢測完成：通過 {{success}}，失敗 {{failed}}，不支援 {{unsupported}}",
+    "check_concurrency": "檢測並發",
     "download_selected": "下載選取 ({{count}})",
     "download_archive": "下載後台帳號池 ZIP",
     "download_archive_success": "已下載後台帳號池 ZIP",

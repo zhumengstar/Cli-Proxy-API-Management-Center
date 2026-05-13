@@ -1239,6 +1239,7 @@
     "check_success": "检测通过",
     "check_unsupported": "该账号类型暂不支持检测",
     "check_done": "检测完成：通过 {{success}}，失败 {{failed}}，不支持 {{unsupported}}",
+    "check_concurrency": "检测并发",
     "download_selected": "下载选中 ({{count}})",
     "download_archive": "下载后台账号池 ZIP",
     "download_archive_success": "已下载后台账号池 ZIP",

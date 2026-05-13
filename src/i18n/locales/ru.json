@@ -1236,6 +1236,7 @@
     "check_success": "Проверка пройдена",
     "check_unsupported": "Этот тип аккаунта пока не поддерживает проверку",
     "check_done": "Проверка завершена: успешно {{success}}, ошибок {{failed}}, не поддерживается {{unsupported}}",
+    "check_concurrency": "Параллельность проверки",
     "download_selected": "Скачать выбранные ({{count}})",
     "download_archive": "Скачать серверный ZIP пула",
     "download_archive_success": "Серверный ZIP пула скачан",
