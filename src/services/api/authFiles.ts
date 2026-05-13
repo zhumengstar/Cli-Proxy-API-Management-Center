@@ -3,7 +3,7 @@
  */
 
 import { apiClient } from './client';
-import { syncAccountPoolFromAuthFiles } from '@/utils/accountPool';
+import { scheduleAccountPoolSync } from '@/utils/accountPool';
 import type { AuthFilesResponse } from '@/types/authFile';
 import type { OAuthModelAliasEntry } from '@/types';
 import { parseTimestampMs } from '@/utils/timestamp';
@@ -313,14 +313,6 @@ const saveAuthFileText = async (name: string, text: string) => {
   await authFilesApi.upload(file);
 };
 
-const syncAccountPoolAfterAuthMutation = async () => {
-  try {
-    await syncAccountPoolFromAuthFiles();
-  } catch {
-    // Account pool sync is best-effort and should not fail the auth-file mutation.
-  }
-};
-
 export const isAuthFileInvalidJsonObjectError = (err: unknown): boolean =>
   err instanceof Error && err.message === AUTH_FILE_INVALID_JSON_OBJECT_ERROR;
 
@@ -418,8 +410,8 @@ export const authFilesApi = {
     apiClient.patch<AuthFileStatusResponse>('/auth-files/status', { name, disabled }),
 
   patchFields: (name: string, fields: AuthFileFieldsPatch) =>
-    apiClient.patch('/auth-files/fields', { name, ...fields }).then(async (result) => {
-      await syncAccountPoolAfterAuthMutation();
+    apiClient.patch('/auth-files/fields', { name, ...fields }).then((result) => {
+      scheduleAccountPoolSync();
       return result;
     }),
 
@@ -434,7 +426,7 @@ export const authFilesApi = {
       formData.append('file', file, file.name);
     });
     const payload = await apiClient.postForm<AuthFileBatchUploadResponse>('/auth-files', formData);
-    await syncAccountPoolAfterAuthMutation();
+    scheduleAccountPoolSync();
     return normalizeBatchUploadResponse(payload, requestedNames);
   },
 

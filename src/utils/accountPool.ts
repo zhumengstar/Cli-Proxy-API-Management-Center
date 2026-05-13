@@ -9,6 +9,12 @@ export type AccountPoolRecord = {
 };
 
 export const ACCOUNT_POOL_STORAGE_KEY = 'cli-proxy-account-pool';
+export const ACCOUNT_POOL_UPDATED_EVENT = 'cli-proxy-account-pool-updated';
+const ACCOUNT_POOL_SYNC_DEBOUNCE_MS = 400;
+const ACCOUNT_POOL_SYNC_CONCURRENCY = 5;
+
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+let syncInFlight: Promise<AccountPoolRecord[]> | null = null;
 
 export const isRuntimeOnlyAuthPoolFile = (file: AuthFileItem): boolean => {
   const value = file.runtimeOnly ?? file['runtime_only'];
@@ -97,38 +103,90 @@ export const buildAccountPoolFileContentCache = (
     return cache;
   }, {});
 
-export const syncAccountPoolFromAuthFiles = async (): Promise<AccountPoolRecord[]> => {
-  const storedRecords = uniqueAccountPoolRecords(readAccountPoolRecords());
-  const response = await apiClient.get<AuthFilesResponse>('/auth-files');
-  const importedFiles = response.files.filter((file) => !isRuntimeOnlyAuthPoolFile(file));
-  let nextRecords = [...storedRecords];
-  const seenHashes = new Set(storedRecords.map((record) => record.hash));
-
-  await Promise.all(
-    importedFiles.map(async (file) => {
-      try {
-        const responseText = await apiClient.getRaw(
-          `/auth-files/download?name=${encodeURIComponent(file.name)}`,
-          { responseType: 'blob' }
-        );
-        const rawText = await (responseText.data as Blob).text();
-        const hash = await hashText(normalizeJsonForDedupe(rawText));
-        nextRecords = nextRecords.filter((record) => record.file.name !== file.name);
-        if (seenHashes.has(hash)) return;
-        seenHashes.add(hash);
-        nextRecords.push({
-          file,
-          content: rawText,
-          hash,
-          savedAt: Date.now(),
-        });
-      } catch {
-        // Keep the existing pool intact even when a source auth file can no longer be read.
-      }
+const emitAccountPoolUpdated = (records: AccountPoolRecord[]) => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent<AccountPoolRecord[]>(ACCOUNT_POOL_UPDATED_EVENT, {
+      detail: records,
     })
   );
+};
 
-  const mergedRecords = uniqueAccountPoolRecords(nextRecords);
-  writeAccountPoolRecords(mergedRecords);
-  return mergedRecords;
+const runWithConcurrency = async <T,>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+) => {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      const item = items[index];
+      if (!item) return;
+      await worker(item);
+    }
+  });
+  await Promise.all(workers);
+};
+
+export const syncAccountPoolFromAuthFiles = async (): Promise<AccountPoolRecord[]> => {
+  if (syncInFlight) return syncInFlight;
+
+  syncInFlight = (async () => {
+    const storedRecords = uniqueAccountPoolRecords(readAccountPoolRecords());
+    const response = await apiClient.get<AuthFilesResponse>('/auth-files');
+    const importedFiles = response.files.filter((file) => !isRuntimeOnlyAuthPoolFile(file));
+    const recordsByName = new Map<string, AccountPoolRecord>();
+    storedRecords.forEach((record) => {
+      recordsByName.set(record.file.name, record);
+    });
+
+    await runWithConcurrency(
+      importedFiles,
+      ACCOUNT_POOL_SYNC_CONCURRENCY,
+      async (file) => {
+        try {
+          const responseText = await apiClient.getRaw(
+            `/auth-files/download?name=${encodeURIComponent(file.name)}`,
+            { responseType: 'blob' }
+          );
+          const rawText = await (responseText.data as Blob).text();
+          const hash = await hashText(normalizeJsonForDedupe(rawText));
+          recordsByName.set(file.name, {
+            file,
+            content: rawText,
+            hash,
+            savedAt: Date.now(),
+          });
+        } catch {
+          // Keep the existing pool intact even when a source auth file can no longer be read.
+        }
+      }
+    );
+
+    const mergedRecords = uniqueAccountPoolRecords(Array.from(recordsByName.values()));
+    writeAccountPoolRecords(mergedRecords);
+    emitAccountPoolUpdated(mergedRecords);
+    return mergedRecords;
+  })();
+
+  try {
+    return await syncInFlight;
+  } finally {
+    syncInFlight = null;
+  }
+};
+
+export const scheduleAccountPoolSync = () => {
+  if (typeof window === 'undefined') return;
+  if (syncTimer) {
+    clearTimeout(syncTimer);
+  }
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    void syncAccountPoolFromAuthFiles().catch(() => {
+      // Background sync is best-effort.
+    });
+  }, ACCOUNT_POOL_SYNC_DEBOUNCE_MS);
 };

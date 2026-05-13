@@ -22,6 +22,7 @@ import { formatUnixTimestamp } from '@/utils/format';
 import { getStatusFromError } from '@/utils/quota';
 import { createZipBlob } from '@/utils/zip';
 import {
+  ACCOUNT_POOL_UPDATED_EVENT,
   buildAccountPoolFileContentCache,
   readAccountPoolRecords,
   syncAccountPoolFromAuthFiles,
@@ -104,39 +105,55 @@ export function AccountPoolPage() {
   const [pageSizeInput, setPageSizeInput] = useState(String(DEFAULT_ACCOUNT_POOL_PAGE_SIZE));
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
 
-  const hydrateStoredPool = useCallback(() => {
-    const storedRecords = uniqueAccountPoolRecords(readAccountPoolRecords());
-    applyAccountPoolRecords(storedRecords, setFiles, setFileContentCache);
+  const applyRecords = useCallback((records: AccountPoolRecord[]) => {
+    const nextRecords = uniqueAccountPoolRecords(records);
+    applyAccountPoolRecords(nextRecords, setFiles, setFileContentCache);
     setSelectedNames((current) =>
-      current.filter((name) => storedRecords.some((record) => record.file.name === name))
+      current.filter((name) => nextRecords.some((record) => record.file.name === name))
     );
-    pruneCheckResults(storedRecords.map((record) => record.file.name));
-    setLoading(false);
-    return storedRecords;
+    pruneCheckResults(nextRecords.map((record) => record.file.name));
+    return nextRecords;
   }, [pruneCheckResults]);
 
-  const syncFiles = useCallback(async () => {
-    setLoading(true);
+  const hydrateStoredPool = useCallback(() => {
+    const storedRecords = applyRecords(readAccountPoolRecords());
+    setLoading(false);
+    return storedRecords;
+  }, [applyRecords]);
+
+  const syncFiles = useCallback(async (showLoading = true) => {
+    if (showLoading) {
+      setLoading(true);
+    }
     setError('');
     hydrateStoredPool();
     try {
       const mergedRecords = await syncAccountPoolFromAuthFiles();
-      applyAccountPoolRecords(mergedRecords, setFiles, setFileContentCache);
-      setSelectedNames((current) =>
-        current.filter((name) => mergedRecords.some((record) => record.file.name === name))
-      );
-      pruneCheckResults(mergedRecords.map((record) => record.file.name));
+      applyRecords(mergedRecords);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('notification.refresh_failed');
       setError(message);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
-  }, [hydrateStoredPool, t]);
+  }, [applyRecords, hydrateStoredPool, t]);
 
   useEffect(() => {
-    void syncFiles();
-  }, [syncFiles]);
+    hydrateStoredPool();
+    void syncFiles(false);
+
+    const handleAccountPoolUpdated = (event: Event) => {
+      const records = (event as CustomEvent<AccountPoolRecord[]>).detail;
+      if (Array.isArray(records)) {
+        applyRecords(records);
+      }
+    };
+
+    window.addEventListener(ACCOUNT_POOL_UPDATED_EVENT, handleAccountPoolUpdated);
+    return () => window.removeEventListener(ACCOUNT_POOL_UPDATED_EVENT, handleAccountPoolUpdated);
+  }, [applyRecords, hydrateStoredPool, syncFiles]);
 
   const typeOptions = useMemo(() => {
     const types = Array.from(new Set(files.map(getFileType))).sort((a, b) => a.localeCompare(b));
