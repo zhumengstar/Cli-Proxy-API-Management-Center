@@ -111,7 +111,8 @@ const getNestedRecord = (value: unknown, key: string): Record<string, unknown> |
 
 const getRegistrationTime = (
   file: AuthFileItem,
-  fileContentCache: Record<string, string>
+  fileContentCache: Record<string, string>,
+  savedAtByName: Map<string, number>
 ): number | null => {
   const metadata =
     file.metadata && typeof file.metadata === 'object' && !Array.isArray(file.metadata)
@@ -139,7 +140,7 @@ const getRegistrationTime = (
     }
   }
 
-  return firstDateFromRecords([
+  const detectedTime = firstDateFromRecords([
     file,
     metadata,
     attributes,
@@ -150,6 +151,10 @@ const getRegistrationTime = (
     getNestedRecord(parsedContent, 'metadata'),
     getNestedRecord(parsedContent, 'profile'),
   ]);
+  if (detectedTime !== null) return detectedTime;
+
+  const savedAt = savedAtByName.get(file.name);
+  return typeof savedAt === 'number' && Number.isFinite(savedAt) && savedAt > 0 ? savedAt : null;
 };
 
 const getPlanValue = (
@@ -277,10 +282,12 @@ const compareOptionalTime = (
 const applyAccountPoolRecords = (
   records: AccountPoolRecord[],
   setFiles: (files: AuthFileItem[]) => void,
-  setFileContentCache: (cache: Record<string, string>) => void
+  setFileContentCache: (cache: Record<string, string>) => void,
+  setSavedAtByName: (savedAtByName: Map<string, number>) => void
 ) => {
   setFiles(records.map((record) => record.file));
   setFileContentCache(buildAccountPoolFileContentCache(records));
+  setSavedAtByName(new Map(records.map((record) => [record.file.name, record.savedAt])));
 };
 
 export function AccountPoolPage() {
@@ -296,6 +303,7 @@ export function AccountPoolPage() {
   const pruneCheckResults = useAccountPoolCheckStore((state) => state.pruneResults);
   const [files, setFiles] = useState<AuthFileItem[]>([]);
   const [fileContentCache, setFileContentCache] = useState<Record<string, string>>({});
+  const [savedAtByName, setSavedAtByName] = useState<Map<string, number>>(() => new Map());
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [downloadingArchive, setDownloadingArchive] = useState(false);
@@ -314,7 +322,7 @@ export function AccountPoolPage() {
 
   const applyRecords = useCallback((records: AccountPoolRecord[]) => {
     const nextRecords = uniqueAccountPoolRecords(records);
-    applyAccountPoolRecords(nextRecords, setFiles, setFileContentCache);
+    applyAccountPoolRecords(nextRecords, setFiles, setFileContentCache, setSavedAtByName);
     setSelectedNames((current) =>
       current.filter((name) => nextRecords.some((record) => record.file.name === name))
     );
@@ -404,8 +412,8 @@ export function AccountPoolPage() {
       .sort((left, right) => {
         if (sortMode === 'registered_desc' || sortMode === 'registered_asc') {
           const timeDiff = compareOptionalTime(
-            getRegistrationTime(left, fileContentCache),
-            getRegistrationTime(right, fileContentCache),
+            getRegistrationTime(left, fileContentCache, savedAtByName),
+            getRegistrationTime(right, fileContentCache, savedAtByName),
             sortMode === 'registered_asc' ? 'asc' : 'desc'
           );
           if (timeDiff !== 0) return timeDiff;
@@ -424,7 +432,7 @@ export function AccountPoolPage() {
         if (rankDiff !== 0) return rankDiff;
         return left.name.localeCompare(right.name);
       });
-  }, [checkResults, fileContentCache, files, planFilter, search, sortMode, typeFilter]);
+  }, [checkResults, fileContentCache, files, planFilter, savedAtByName, search, sortMode, typeFilter]);
 
   const selectedSet = useMemo(() => new Set(selectedNames), [selectedNames]);
   const totalPages = Math.max(1, Math.ceil(filteredFiles.length / pageSize));
