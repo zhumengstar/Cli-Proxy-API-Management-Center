@@ -4,6 +4,7 @@
 
 import { apiClient } from './client';
 import { scheduleAccountPoolSync } from '@/utils/accountPool';
+import { computeApiUrl, detectApiBaseFromLocation } from '@/utils/connection';
 import type { AuthFilesResponse } from '@/types/authFile';
 import type { OAuthModelAliasEntry } from '@/types';
 import { parseTimestampMs } from '@/utils/timestamp';
@@ -50,6 +51,12 @@ const getStatusCode = (err: unknown): number | undefined => {
   if (!err || typeof err !== 'object') return undefined;
   if ('status' in err) return (err as StatusError).status;
   return undefined;
+};
+
+const getLocalManagementUploadUrl = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  const apiUrl = computeApiUrl(detectApiBaseFromLocation());
+  return apiUrl ? `${apiUrl}/auth-files` : null;
 };
 
 const normalizeRequestedAuthFileNames = (names: string[]): string[] => {
@@ -313,6 +320,17 @@ const saveAuthFileText = async (name: string, text: string) => {
   await authFilesApi.upload(file);
 };
 
+const buildAuthFilesFormData = (files: File[]): FormData => {
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append('file', file, file.name);
+  });
+  return formData;
+};
+
+const uploadAuthFilesForm = (url: string, files: File[]): Promise<AuthFileBatchUploadResponse> =>
+  apiClient.postForm<AuthFileBatchUploadResponse>(url, buildAuthFilesFormData(files));
+
 export const isAuthFileInvalidJsonObjectError = (err: unknown): boolean =>
   err instanceof Error && err.message === AUTH_FILE_INVALID_JSON_OBJECT_ERROR;
 
@@ -421,11 +439,14 @@ export const authFilesApi = {
       return { status: 'ok', uploaded: 0, files: [], failed: [] };
     }
 
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append('file', file, file.name);
-    });
-    const payload = await apiClient.postForm<AuthFileBatchUploadResponse>('/auth-files', formData);
+    let payload: AuthFileBatchUploadResponse;
+    try {
+      payload = await uploadAuthFilesForm('/auth-files', files);
+    } catch (err) {
+      const fallbackUrl = getStatusCode(err) === 404 ? getLocalManagementUploadUrl() : null;
+      if (!fallbackUrl) throw err;
+      payload = await uploadAuthFilesForm(fallbackUrl, files);
+    }
     scheduleAccountPoolSync();
     return normalizeBatchUploadResponse(payload, requestedNames);
   },
