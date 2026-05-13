@@ -21,10 +21,16 @@ import { downloadBlob } from '@/utils/download';
 import { formatUnixTimestamp } from '@/utils/format';
 import { getStatusFromError } from '@/utils/quota';
 import { createZipBlob } from '@/utils/zip';
+import {
+  buildAccountPoolFileContentCache,
+  readAccountPoolRecords,
+  syncAccountPoolFromAuthFiles,
+  uniqueAccountPoolRecords,
+  type AccountPoolRecord,
+} from '@/utils/accountPool';
 import styles from './AccountPoolPage.module.scss';
 
 const ACCOUNT_CHECK_CONCURRENCY = 5;
-const ACCOUNT_POOL_STORAGE_KEY = 'cli-proxy-account-pool';
 const MIN_ACCOUNT_POOL_PAGE_SIZE = 1;
 const MAX_ACCOUNT_POOL_PAGE_SIZE = 200;
 const DEFAULT_ACCOUNT_POOL_PAGE_SIZE = 24;
@@ -35,20 +41,6 @@ const QUOTA_CONFIGS = [
   GEMINI_CLI_CONFIG,
   KIMI_CONFIG,
 ] as Array<QuotaConfig<unknown, unknown>>;
-
-type AccountPoolRecord = {
-  file: AuthFileItem;
-  content: string;
-  hash: string;
-  savedAt: number;
-};
-
-const isRuntimeOnly = (file: AuthFileItem): boolean => {
-  const value = file.runtimeOnly ?? file['runtime_only'];
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') return value.trim().toLowerCase() === 'true';
-  return false;
-};
 
 const getFileType = (file: AuthFileItem): string => String(file.type || file.provider || 'unknown');
 
@@ -72,76 +64,12 @@ const clampAccountPoolPageSize = (value: number): number =>
 const resolveQuotaConfig = (file: AuthFileItem): QuotaConfig<unknown, unknown> | null =>
   QUOTA_CONFIGS.find((config) => config.filterFn(file)) ?? null;
 
-const normalizeJsonForDedupe = (rawText: string): string => {
-  const normalize = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(normalize);
-    if (!value || typeof value !== 'object') return value;
-
-    return Object.keys(value as Record<string, unknown>)
-      .sort()
-      .reduce<Record<string, unknown>>((result, key) => {
-        result[key] = normalize((value as Record<string, unknown>)[key]);
-        return result;
-      }, {});
-  };
-
-  try {
-    return JSON.stringify(normalize(JSON.parse(rawText)));
-  } catch {
-    return rawText.trim();
-  }
-};
-
-const hashText = async (value: string): Promise<string> => {
-  const bytes = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-};
-
-const readAccountPoolRecords = (): AccountPoolRecord[] => {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(ACCOUNT_POOL_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.reduce<AccountPoolRecord[]>((records, item) => {
-      if (!item || typeof item !== 'object') return records;
-      const record = item as Partial<AccountPoolRecord>;
-      if (!record.file || typeof record.file !== 'object') return records;
-      if (typeof record.content !== 'string' || !record.content.trim()) return records;
-      if (typeof record.hash !== 'string' || !record.hash.trim()) return records;
-      records.push({
-        file: record.file,
-        content: record.content,
-        hash: record.hash,
-        savedAt: typeof record.savedAt === 'number' ? record.savedAt : 0,
-      });
-      return records;
-    }, []);
-  } catch {
-    return [];
-  }
-};
-
-const writeAccountPoolRecords = (records: AccountPoolRecord[]) => {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(ACCOUNT_POOL_STORAGE_KEY, JSON.stringify(records));
-};
-
-const uniqueAccountPoolRecords = (records: AccountPoolRecord[]): AccountPoolRecord[] => {
-  const byHash = new Map<string, AccountPoolRecord>();
-  records.forEach((record) => {
-    const existing = byHash.get(record.hash);
-    if (!existing || record.savedAt > existing.savedAt) {
-      byHash.set(record.hash, record);
-    }
-  });
-  return Array.from(byHash.values()).sort((left, right) =>
-    left.file.name.localeCompare(right.file.name)
-  );
+const getCheckSortRank = (status?: string): number => {
+  if (status === 'success') return 0;
+  if (status === 'loading') return 1;
+  if (status === 'error') return 2;
+  if (status === 'unsupported') return 3;
+  return 4;
 };
 
 const applyAccountPoolRecords = (
@@ -150,12 +78,7 @@ const applyAccountPoolRecords = (
   setFileContentCache: (cache: Record<string, string>) => void
 ) => {
   setFiles(records.map((record) => record.file));
-  setFileContentCache(
-    records.reduce<Record<string, string>>((cache, record) => {
-      cache[record.file.name] = record.content;
-      return cache;
-    }, {})
-  );
+  setFileContentCache(buildAccountPoolFileContentCache(records));
 };
 
 export function AccountPoolPage() {
@@ -195,34 +118,9 @@ export function AccountPoolPage() {
   const syncFiles = useCallback(async () => {
     setLoading(true);
     setError('');
-    const storedRecords = hydrateStoredPool();
+    hydrateStoredPool();
     try {
-      const response = await authFilesApi.list();
-      const importedFiles = response.files.filter((file) => !isRuntimeOnly(file));
-      const nextRecords = [...storedRecords];
-      const seenHashes = new Set(storedRecords.map((record) => record.hash));
-
-      await Promise.all(
-        importedFiles.map(async (file) => {
-          try {
-            const rawText = await authFilesApi.downloadText(file.name);
-            const hash = await hashText(normalizeJsonForDedupe(rawText));
-            if (seenHashes.has(hash)) return;
-            seenHashes.add(hash);
-            nextRecords.push({
-              file,
-              content: rawText,
-              hash,
-              savedAt: Date.now(),
-            });
-          } catch {
-            // Keep the existing pool intact even when a source auth file can no longer be read.
-          }
-        })
-      );
-
-      const mergedRecords = uniqueAccountPoolRecords(nextRecords);
-      writeAccountPoolRecords(mergedRecords);
+      const mergedRecords = await syncAccountPoolFromAuthFiles();
       applyAccountPoolRecords(mergedRecords, setFiles, setFileContentCache);
       setSelectedNames((current) =>
         current.filter((name) => mergedRecords.some((record) => record.file.name === name))
@@ -237,8 +135,8 @@ export function AccountPoolPage() {
   }, [hydrateStoredPool, t]);
 
   useEffect(() => {
-    hydrateStoredPool();
-  }, [hydrateStoredPool]);
+    void syncFiles();
+  }, [syncFiles]);
 
   const typeOptions = useMemo(() => {
     const types = Array.from(new Set(files.map(getFileType))).sort((a, b) => a.localeCompare(b));
@@ -250,13 +148,21 @@ export function AccountPoolPage() {
 
   const filteredFiles = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return files.filter((file) => {
-      if (typeFilter !== 'all' && getFileType(file) !== typeFilter) return false;
-      if (!term) return true;
-      return [file.name, getFileType(file), file.statusMessage, file.status]
-        .some((value) => String(value ?? '').toLowerCase().includes(term));
-    });
-  }, [files, search, typeFilter]);
+    return files
+      .filter((file) => {
+        if (typeFilter !== 'all' && getFileType(file) !== typeFilter) return false;
+        if (!term) return true;
+        return [file.name, getFileType(file), file.statusMessage, file.status]
+          .some((value) => String(value ?? '').toLowerCase().includes(term));
+      })
+      .sort((left, right) => {
+        const rankDiff =
+          getCheckSortRank(checkResults[left.name]?.status) -
+          getCheckSortRank(checkResults[right.name]?.status);
+        if (rankDiff !== 0) return rankDiff;
+        return left.name.localeCompare(right.name);
+      });
+  }, [checkResults, files, search, typeFilter]);
 
   const selectedSet = useMemo(() => new Set(selectedNames), [selectedNames]);
   const totalPages = Math.max(1, Math.ceil(filteredFiles.length / pageSize));

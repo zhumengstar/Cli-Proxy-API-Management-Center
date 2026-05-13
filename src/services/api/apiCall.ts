@@ -4,6 +4,7 @@
 
 import type { AxiosRequestConfig } from 'axios';
 import { apiClient } from './client';
+import { API_CALL_TIMEOUT_MS } from '@/utils/constants';
 
 export interface ApiCallRequest {
   authIndex?: string;
@@ -82,7 +83,10 @@ export const apiCallApi = {
     payload: ApiCallRequest,
     config?: AxiosRequestConfig
   ): Promise<ApiCallResult> => {
-    const response = await apiClient.post<Record<string, unknown>>('/api-call', payload, config);
+    const response = await apiClient.post<Record<string, unknown>>('/api-call', payload, {
+      timeout: API_CALL_TIMEOUT_MS,
+      ...config
+    });
     const statusCode = Number(response?.status_code ?? response?.statusCode ?? 0);
     const header = (response?.header ?? response?.headers ?? {}) as Record<string, string[]>;
     const { bodyText, body } = normalizeBody(response?.body);
