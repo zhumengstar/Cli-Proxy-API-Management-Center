@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -32,6 +32,9 @@ type AccountCheckResult = {
 
 const ACCOUNT_CHECK_CONCURRENCY = 5;
 const ACCOUNT_POOL_STORAGE_KEY = 'cli-proxy-account-pool';
+const MIN_ACCOUNT_POOL_PAGE_SIZE = 1;
+const MAX_ACCOUNT_POOL_PAGE_SIZE = 200;
+const DEFAULT_ACCOUNT_POOL_PAGE_SIZE = 24;
 const QUOTA_CONFIGS = [
   CLAUDE_CONFIG,
   ANTIGRAVITY_CONFIG,
@@ -69,6 +72,9 @@ const buildDownloadFileName = () => {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   return `account-pool-${stamp}.zip`;
 };
+
+const clampAccountPoolPageSize = (value: number): number =>
+  Math.min(MAX_ACCOUNT_POOL_PAGE_SIZE, Math.max(MIN_ACCOUNT_POOL_PAGE_SIZE, Math.round(value)));
 
 const resolveQuotaConfig = (file: AuthFileItem): QuotaConfig<unknown, unknown> | null =>
   QUOTA_CONFIGS.find((config) => config.filterFn(file)) ?? null;
@@ -171,6 +177,9 @@ export function AccountPoolPage() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_ACCOUNT_POOL_PAGE_SIZE);
+  const [pageSizeInput, setPageSizeInput] = useState(String(DEFAULT_ACCOUNT_POOL_PAGE_SIZE));
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
 
   const hydrateStoredPool = useCallback(() => {
@@ -267,13 +276,60 @@ export function AccountPoolPage() {
   }, [files, search, typeFilter]);
 
   const selectedSet = useMemo(() => new Set(selectedNames), [selectedNames]);
-  const visibleSelectedCount = filteredFiles.filter((file) => selectedSet.has(file.name)).length;
-  const allVisibleSelected = filteredFiles.length > 0 && visibleSelectedCount === filteredFiles.length;
+  const totalPages = Math.max(1, Math.ceil(filteredFiles.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * pageSize;
+  const pageItems = filteredFiles.slice(pageStart, pageStart + pageSize);
+  const visibleSelectedCount = pageItems.filter((file) => selectedSet.has(file.name)).length;
+  const allVisibleSelected = pageItems.length > 0 && visibleSelectedCount === pageItems.length;
 
   const selectedFiles = useMemo(
     () => files.filter((file) => selectedSet.has(file.name)),
     [files, selectedSet]
   );
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, typeFilter]);
+
+  const commitPageSizeInput = (rawValue: string) => {
+    const trimmed = rawValue.trim();
+    if (!trimmed) {
+      setPageSizeInput(String(pageSize));
+      return;
+    }
+
+    const value = Number(trimmed);
+    if (!Number.isFinite(value)) {
+      setPageSizeInput(String(pageSize));
+      return;
+    }
+
+    const next = clampAccountPoolPageSize(value);
+    setPageSize(next);
+    setPageSizeInput(String(next));
+    setPage(1);
+  };
+
+  const handlePageSizeChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const rawValue = event.currentTarget.value;
+    setPageSizeInput(rawValue);
+
+    const trimmed = rawValue.trim();
+    if (!trimmed) return;
+
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) return;
+
+    setPageSize(clampAccountPoolPageSize(parsed));
+    setPage(1);
+  };
 
   const toggleOne = (name: string, checked: boolean) => {
     setSelectedNames((current) => {
@@ -290,7 +346,7 @@ export function AccountPoolPage() {
   const toggleVisible = (checked: boolean) => {
     setSelectedNames((current) => {
       const next = new Set(current);
-      filteredFiles.forEach((file) => {
+      pageItems.forEach((file) => {
         if (checked) {
           next.add(file.name);
         } else {
@@ -457,12 +513,30 @@ export function AccountPoolPage() {
             <span className={styles.stats}>
               {t('account_pool.stats', { visible: filteredFiles.length, total: files.length })}
             </span>
+            <label className={styles.pageSizeControl}>
+              <span>{t('auth_files.page_size_label')}</span>
+              <input
+                className={styles.pageSizeInput}
+                type="number"
+                min={MIN_ACCOUNT_POOL_PAGE_SIZE}
+                max={MAX_ACCOUNT_POOL_PAGE_SIZE}
+                step={1}
+                value={pageSizeInput}
+                onChange={handlePageSizeChange}
+                onBlur={(event) => commitPageSizeInput(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+            </label>
           </div>
           <div className={styles.selectionActions}>
             <SelectionCheckbox
               checked={allVisibleSelected}
               onChange={toggleVisible}
-              disabled={filteredFiles.length === 0}
+              disabled={pageItems.length === 0}
               label={t('account_pool.select_visible')}
             />
             <Button variant="ghost" size="sm" onClick={() => setSelectedNames([])}>
@@ -480,7 +554,7 @@ export function AccountPoolPage() {
           />
         ) : (
           <div className={styles.poolGrid}>
-            {filteredFiles.map((file) => {
+            {pageItems.map((file) => {
               const checked = selectedSet.has(file.name);
               const type = getFileType(file);
               const modifiedLabel = getFileModifiedLabel(file);
@@ -526,6 +600,34 @@ export function AccountPoolPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {!loading && filteredFiles.length > pageSize && (
+          <div className={styles.pagination}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setPage(Math.max(1, currentPage - 1))}
+              disabled={currentPage <= 1}
+            >
+              {t('auth_files.pagination_prev')}
+            </Button>
+            <div className={styles.pageInfo}>
+              {t('auth_files.pagination_info', {
+                current: currentPage,
+                total: totalPages,
+                count: filteredFiles.length,
+              })}
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage >= totalPages}
+            >
+              {t('auth_files.pagination_next')}
+            </Button>
           </div>
         )}
       </Card>
