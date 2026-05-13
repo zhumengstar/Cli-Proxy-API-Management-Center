@@ -85,6 +85,7 @@ const applyAccountPoolRecords = (
 export function AccountPoolPage() {
   const { t } = useTranslation();
   const showNotification = useNotificationStore((state) => state.showNotification);
+  const showConfirmation = useNotificationStore((state) => state.showConfirmation);
   const checking = useAccountPoolCheckStore((state) => state.checking);
   const checkResults = useAccountPoolCheckStore((state) => state.results);
   const checkSummary = useAccountPoolCheckStore((state) => state.summary);
@@ -97,6 +98,7 @@ export function AccountPoolPage() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [downloadingArchive, setDownloadingArchive] = useState(false);
+  const [overwritingPassed, setOverwritingPassed] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -192,6 +194,10 @@ export function AccountPoolPage() {
   const selectedFiles = useMemo(
     () => files.filter((file) => selectedSet.has(file.name)),
     [files, selectedSet]
+  );
+  const passedFiles = useMemo(
+    () => files.filter((file) => checkResults[file.name]?.status === 'success'),
+    [checkResults, files]
   );
 
   useEffect(() => {
@@ -299,6 +305,58 @@ export function AccountPoolPage() {
     } finally {
       setDownloadingArchive(false);
     }
+  };
+
+  const overwritePassedAuthFiles = async () => {
+    if (passedFiles.length === 0 || overwritingPassed) return;
+    const uploadFiles = passedFiles.reduce<File[]>((result, file) => {
+      const content = fileContentCache[file.name];
+      if (!content) return result;
+      result.push(new File([content], file.name, { type: 'application/json' }));
+      return result;
+    }, []);
+
+    if (uploadFiles.length === 0) {
+      showNotification(t('account_pool.overwrite_passed_empty_content'), 'warning');
+      return;
+    }
+
+    setOverwritingPassed(true);
+    try {
+      const result = await authFilesApi.uploadFiles(uploadFiles);
+      await syncFiles(false);
+      const skipped = passedFiles.length - uploadFiles.length;
+      if (result.failed.length > 0 || skipped > 0) {
+        showNotification(
+          t('account_pool.overwrite_passed_partial', {
+            success: result.uploaded,
+            failed: result.failed.length + skipped,
+          }),
+          'warning'
+        );
+        return;
+      }
+      showNotification(
+        t('account_pool.overwrite_passed_success', { count: result.uploaded }),
+        'success'
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('common.unknown_error');
+      showNotification(t('account_pool.overwrite_passed_failed', { message }), 'error');
+    } finally {
+      setOverwritingPassed(false);
+    }
+  };
+
+  const handleOverwritePassed = () => {
+    if (passedFiles.length === 0) return;
+    showConfirmation({
+      title: t('account_pool.overwrite_passed_title'),
+      message: t('account_pool.overwrite_passed_confirm', { count: passedFiles.length }),
+      confirmText: t('common.confirm'),
+      variant: 'danger',
+      onConfirm: overwritePassedAuthFiles,
+    });
   };
 
   const detectAccounts = async (targets: AuthFileItem[]) => {
@@ -410,6 +468,14 @@ export function AccountPoolPage() {
             disabled={downloadingArchive}
           >
             {t('account_pool.download_archive')}
+          </Button>
+          <Button
+            variant="danger"
+            onClick={handleOverwritePassed}
+            loading={overwritingPassed}
+            disabled={overwritingPassed || passedFiles.length === 0}
+          >
+            {t('account_pool.overwrite_passed', { count: passedFiles.length })}
           </Button>
         </div>
       </div>
