@@ -412,6 +412,7 @@ const matchesQuotaFilter = (
   const hasUsableQuota = remainingPercent !== null && remainingPercent > 0;
   if (filter === 'with_quota') return hasUsableQuota;
   if (filter === 'without_quota') return !hasUsableQuota;
+  if (filter === 'high_quota') return hasUsableQuota && remainingPercent > LOW_ACCOUNT_POOL_QUOTA_PERCENT;
   if (filter === 'low_quota') {
     return hasUsableQuota && remainingPercent <= LOW_ACCOUNT_POOL_QUOTA_PERCENT;
   }
@@ -567,6 +568,8 @@ export function AccountPoolPage() {
   const sortOptions = useMemo(
     () => [
       { value: 'check', label: t('account_pool.sort_check') },
+      { value: 'quota_desc', label: t('account_pool.sort_quota_desc') },
+      { value: 'quota_asc', label: t('account_pool.sort_quota_asc') },
       { value: 'registered_desc', label: t('account_pool.sort_registered_desc') },
       { value: 'registered_asc', label: t('account_pool.sort_registered_asc') },
       { value: 'modified_desc', label: t('account_pool.sort_modified_desc') },
@@ -600,6 +603,7 @@ export function AccountPoolPage() {
     () => [
       { value: 'all', label: t('account_pool.quota_all', { defaultValue: '全部额度' }) },
       { value: 'with_quota', label: t('account_pool.quota_with', { defaultValue: '有额度' }) },
+      { value: 'high_quota', label: t('account_pool.quota_high', { defaultValue: '高额度' }) },
       { value: 'low_quota', label: t('account_pool.quota_low', { defaultValue: '低额度' }) },
       { value: 'without_quota', label: t('account_pool.quota_without', { defaultValue: '无额度' }) },
     ],
@@ -634,6 +638,15 @@ export function AccountPoolPage() {
             sortMode === 'modified_asc' ? 'asc' : 'desc'
           );
           if (timeDiff !== 0) return timeDiff;
+        } else if (sortMode === 'quota_desc' || sortMode === 'quota_asc') {
+          const leftQuota = checkResults[left.name]?.quotaRemainingPercent;
+          const rightQuota = checkResults[right.name]?.quotaRemainingPercent;
+          const quotaDiff = compareOptionalTime(
+            typeof leftQuota === 'number' ? leftQuota : null,
+            typeof rightQuota === 'number' ? rightQuota : null,
+            sortMode === 'quota_asc' ? 'asc' : 'desc'
+          );
+          if (quotaDiff !== 0) return quotaDiff;
         }
 
         const rankDiff =
