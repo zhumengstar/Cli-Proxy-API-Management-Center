@@ -301,11 +301,42 @@ const resolveQuotaLabel = (record: Record<string, unknown>, t: ReturnType<typeof
   return getStringValue(record.label) ?? getStringValue(record.id) ?? 'Quota';
 };
 
-const buildQuotaLine = (
+const buildQuotaDetail = (
   label: string,
   remaining: string,
-  reset?: string
-): string => `${label}: ${remaining}${reset && reset !== '-' ? ` / ${reset}` : ''}`;
+  reset?: string,
+  percent?: number
+) => JSON.stringify({ label, remaining, reset: reset && reset !== '-' ? reset : '', percent });
+
+const parseQuotaDetail = (line: string): {
+  label: string;
+  remaining: string;
+  reset: string;
+  percent?: number;
+} => {
+  try {
+    const parsed = JSON.parse(line) as unknown;
+    if (isRecord(parsed)) {
+      return {
+        label: getStringValue(parsed.label) ?? 'Quota',
+        remaining: getStringValue(parsed.remaining) ?? '--',
+        reset: getStringValue(parsed.reset) ?? '',
+        percent: getNumberValue(parsed.percent) ?? undefined,
+      };
+    }
+  } catch {
+    // Older cached results used plain text; keep them readable.
+  }
+  const [labelPart, rest = '--'] = line.split(':');
+  const [remainingPart, resetPart = ''] = rest.split('/');
+  const percent = getNumberValue(remainingPart.replace('%', '').trim());
+  return {
+    label: labelPart.trim() || 'Quota',
+    remaining: remainingPart.trim() || '--',
+    reset: resetPart.trim(),
+    percent: percent ?? undefined,
+  };
+};
 
 const getQuotaSummary = (
   value: unknown,
@@ -335,21 +366,26 @@ const getQuotaSummary = (
     const reset = getStringValue(item.resetLabel) ?? getStringValue(item.resetTime) ?? getStringValue(item.resetHint);
 
     let remaining = '--';
+    let percent: number | undefined;
     if (usedPercent !== null) {
       const remainingPercent = Math.max(0, Math.min(100, 100 - usedPercent));
       remainingPercents.push(remainingPercent);
+      percent = remainingPercent;
       remaining = formatPercent(remainingPercent);
     } else if (remainingFraction !== null) {
       const remainingPercent = Math.max(0, Math.min(100, remainingFraction * 100));
       remainingPercents.push(remainingPercent);
+      percent = remainingPercent;
       remaining = formatPercent(remainingPercent);
     } else if (remainingAmount !== null) {
       remaining = `${remainingAmount}`;
     } else if (used !== null && limit !== null && limit > 0) {
-      remaining = formatPercent(((limit - used) / limit) * 100);
+      const remainingPercent = ((limit - used) / limit) * 100;
+      percent = remainingPercent;
+      remaining = formatPercent(remainingPercent);
     }
 
-    result.push(buildQuotaLine(label, remaining, reset));
+    result.push(buildQuotaDetail(label, remaining, reset, percent));
     return result;
   }, []);
 
@@ -1106,6 +1142,7 @@ export function AccountPoolPage() {
               const checkedAtLabel = checkResult?.checkedAt
                 ? formatUnixTimestamp(Math.round(checkResult.checkedAt / 1000))
                 : '';
+              const quotaDetails = (checkResult?.quotaLines ?? []).map(parseQuotaDetail);
               return (
                 <div
                   key={file.name}
@@ -1138,17 +1175,48 @@ export function AccountPoolPage() {
                               : styles.checkError
                       }`}
                     >
-                      {checkResult.status === 'loading'
-                        ? t('account_pool.checking')
-                        : [checkResult.message, planLabel ? `Plan: ${planLabel}` : '', checkedAtLabel]
-                            .filter(Boolean)
-                            .join(' / ')}
-                      {checkResult.quotaLines && checkResult.quotaLines.length > 0 && (
-                        <div className={styles.quotaLines}>
-                          {checkResult.quotaLines.map((line) => (
-                            <div key={line}>{line}</div>
-                          ))}
-                        </div>
+                      {checkResult.status === 'loading' ? (
+                        t('account_pool.checking')
+                      ) : (
+                        <>
+                          <div className={styles.checkHeader}>
+                            <span className={styles.checkStatusPill}>{checkResult.message}</span>
+                            {planLabel && <span className={styles.checkPlanPill}>{planLabel}</span>}
+                            {checkedAtLabel && <span className={styles.checkTime}>{checkedAtLabel}</span>}
+                          </div>
+                          {quotaDetails.length > 0 && (
+                            <div className={styles.quotaPanel}>
+                              {quotaDetails.map((quota) => {
+                                const percent =
+                                  typeof quota.percent === 'number'
+                                    ? Math.max(0, Math.min(100, quota.percent))
+                                    : null;
+                                const low = percent !== null && percent <= LOW_ACCOUNT_POOL_QUOTA_PERCENT;
+                                return (
+                                  <div className={styles.quotaItem} key={`${quota.label}-${quota.reset}`}>
+                                    <div className={styles.quotaItemTop}>
+                                      <span className={styles.quotaName}>{quota.label}</span>
+                                      <span className={low ? styles.quotaLowValue : styles.quotaValue}>
+                                        {quota.remaining}
+                                      </span>
+                                    </div>
+                                    {percent !== null && (
+                                      <div className={styles.quotaTrack}>
+                                        <span
+                                          className={low ? styles.quotaFillLow : styles.quotaFill}
+                                          style={{ width: `${percent}%` }}
+                                        />
+                                      </div>
+                                    )}
+                                    {quota.reset && (
+                                      <div className={styles.quotaReset}>{quota.reset}</div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
