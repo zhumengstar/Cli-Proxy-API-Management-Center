@@ -1244,7 +1244,7 @@
     "download_failed": "Не удалось скачать пул аккаунтов: {{message}}",
     "overwrite_passed": "Перезаписать прошедшие в auth-файлы ({{count}})",
     "overwrite_passed_title": "Перезаписать auth-файлы",
-    "overwrite_passed_confirm": "Перезаписать {{count}} прошедших проверку JSON аккаунтов обратно в auth-файлы? Файлы с теми же именами будут заменены.",
+    "overwrite_passed_confirm": "Сначала удалить все текущие auth-файлы, затем записать {{count}} прошедших проверку JSON аккаунтов? Кэш пула аккаунтов сохранится.",
     "overwrite_passed_success": "Перезаписано auth-файлов: {{count}}",
     "overwrite_passed_partial": "Перезапись частично завершена: успешно {{success}}, ошибок {{failed}}",
     "overwrite_passed_failed": "Ошибка перезаписи: {{message}}",

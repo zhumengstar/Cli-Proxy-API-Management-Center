@@ -1247,7 +1247,7 @@
     "download_failed": "Account pool download failed: {{message}}",
     "overwrite_passed": "Overwrite passed to auth files ({{count}})",
     "overwrite_passed_title": "Overwrite auth files",
-    "overwrite_passed_confirm": "Overwrite {{count}} passed account JSON files back to auth files? Existing files with the same names will be replaced.",
+    "overwrite_passed_confirm": "Delete all current auth files first, then write {{count}} passed account JSON files? The account pool cache will be kept.",
     "overwrite_passed_success": "Overwrote {{count}} passed accounts to auth files",
     "overwrite_passed_partial": "Overwrite partially completed: {{success}} succeeded, {{failed}} failed",
     "overwrite_passed_failed": "Overwrite failed: {{message}}",

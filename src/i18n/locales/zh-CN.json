@@ -1247,7 +1247,7 @@
     "download_failed": "账号池下载失败：{{message}}",
     "overwrite_passed": "覆盖通过账号到认证文件 ({{count}})",
     "overwrite_passed_title": "覆盖认证文件",
-    "overwrite_passed_confirm": "确认将 {{count}} 个检测通过的账号 JSON 覆盖回认证文件？同名认证文件会被替换。",
+    "overwrite_passed_confirm": "确认先删除当前所有认证文件，再写入 {{count}} 个检测通过的账号 JSON？账号池缓存不会被删除。",
     "overwrite_passed_success": "已覆盖 {{count}} 个通过账号到认证文件",
     "overwrite_passed_partial": "覆盖部分完成：成功 {{success}}，失败 {{failed}}",
     "overwrite_passed_failed": "覆盖失败：{{message}}",

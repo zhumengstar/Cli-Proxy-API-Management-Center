@@ -381,8 +381,8 @@ export function AccountPoolPage() {
 
     setOverwritingPassed(true);
     try {
+      await authFilesApi.deleteAll();
       const result = await authFilesApi.uploadFiles(uploadFiles);
-      await syncFiles(false);
       const skipped = passedFiles.length - uploadFiles.length;
       if (result.failed.length > 0 || skipped > 0) {
         showNotification(

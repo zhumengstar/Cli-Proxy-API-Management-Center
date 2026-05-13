@@ -1273,7 +1273,7 @@
     "download_failed": "帳號池下載失敗：{{message}}",
     "overwrite_passed": "覆蓋通過帳號到認證檔案 ({{count}})",
     "overwrite_passed_title": "覆蓋認證檔案",
-    "overwrite_passed_confirm": "確認將 {{count}} 個檢測通過的帳號 JSON 覆蓋回認證檔案？同名認證檔案會被替換。",
+    "overwrite_passed_confirm": "確認先刪除目前所有認證檔案，再寫入 {{count}} 個檢測通過的帳號 JSON？帳號池快取不會被刪除。",
     "overwrite_passed_success": "已覆蓋 {{count}} 個通過帳號到認證檔案",
     "overwrite_passed_partial": "覆蓋部分完成：成功 {{success}}，失敗 {{failed}}",
     "overwrite_passed_failed": "覆蓋失敗：{{message}}",
