@@ -130,13 +130,21 @@ const runWithConcurrency = async <T,>(
   await Promise.all(workers);
 };
 
+const normalizeAuthFilesPayload = (payload: unknown): AuthFileItem[] => {
+  if (!payload || typeof payload !== 'object') return [];
+  const files = (payload as Partial<AuthFilesResponse>).files;
+  return Array.isArray(files) ? files : [];
+};
+
 export const syncAccountPoolFromAuthFiles = async (): Promise<AccountPoolRecord[]> => {
   if (syncInFlight) return syncInFlight;
 
   syncInFlight = (async () => {
     const storedRecords = uniqueAccountPoolRecords(readAccountPoolRecords());
-    const response = await apiClient.get<AuthFilesResponse>('/auth-files');
-    const importedFiles = response.files.filter((file) => !isRuntimeOnlyAuthPoolFile(file));
+    const response = await apiClient.get<unknown>('/auth-files');
+    const importedFiles = normalizeAuthFilesPayload(response).filter(
+      (file) => !isRuntimeOnlyAuthPoolFile(file)
+    );
     const recordsByName = new Map<string, AccountPoolRecord>();
     storedRecords.forEach((record) => {
       recordsByName.set(record.file.name, record);
