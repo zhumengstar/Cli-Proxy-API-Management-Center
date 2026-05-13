@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { useAccountPoolCheckStore, useNotificationStore } from '@/stores';
-import { authFilesApi } from '@/services/api';
+import { authFilesApi, type AccountPoolUsageRecord } from '@/services/api';
 import {
   ANTIGRAVITY_CONFIG,
   CLAUDE_CONFIG,
@@ -436,6 +436,19 @@ const buildDownloadFileName = () => {
   return `account-pool-${stamp}.zip`;
 };
 
+const formatUsageRecordTime = (value: string): string => {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return value || '-';
+  return new Date(time).toLocaleString(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+};
+
 const clampAccountPoolPageSize = (value: number): number =>
   Math.min(MAX_ACCOUNT_POOL_PAGE_SIZE, Math.max(MIN_ACCOUNT_POOL_PAGE_SIZE, Math.round(value)));
 
@@ -541,6 +554,8 @@ export function AccountPoolPage() {
   const [checkConcurrency, setCheckConcurrency] = useState(readStoredCheckConcurrency);
   const [checkConcurrencyInput, setCheckConcurrencyInput] = useState(String(checkConcurrency));
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
+  const [usageRecords, setUsageRecords] = useState<AccountPoolUsageRecord[]>([]);
+  const [usageLoading, setUsageLoading] = useState(false);
 
   const applyRecords = useCallback((records: AccountPoolRecord[]) => {
     const nextRecords = uniqueAccountPoolRecords(records);
@@ -591,6 +606,35 @@ export function AccountPoolPage() {
     window.addEventListener(ACCOUNT_POOL_UPDATED_EVENT, handleAccountPoolUpdated);
     return () => window.removeEventListener(ACCOUNT_POOL_UPDATED_EVENT, handleAccountPoolUpdated);
   }, [applyRecords, hydrateStoredPool, syncFiles]);
+
+  const loadUsageRecords = useCallback(async () => {
+    setUsageLoading(true);
+    try {
+      setUsageRecords(await authFilesApi.getAccountPoolUsageRecords(80));
+    } catch {
+      setUsageRecords([]);
+    } finally {
+      setUsageLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadUsageRecords();
+    const timer = window.setInterval(() => {
+      void loadUsageRecords();
+    }, 8000);
+    return () => window.clearInterval(timer);
+  }, [loadUsageRecords]);
+
+  const clearUsageRecords = useCallback(async () => {
+    try {
+      await authFilesApi.clearAccountPoolUsageRecords();
+      setUsageRecords([]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('common.unknown_error');
+      showNotification(t('account_pool.usage_clear_failed', { message, defaultValue: `清空使用记录失败：${message}` }), 'error');
+    }
+  }, [showNotification, t]);
 
   const typeOptions = useMemo(() => {
     const types = Array.from(new Set(files.map(getFileType))).sort((a, b) => a.localeCompare(b));
@@ -1120,6 +1164,94 @@ export function AccountPoolPage() {
       </div>
 
       {error && <div className={styles.errorBox}>{error}</div>}
+
+      <Card>
+        <div className={styles.usageHeader}>
+          <div>
+            <h2 className={styles.usageTitle}>
+              {t('account_pool.usage_title', { defaultValue: '使用记录' })}
+            </h2>
+            <p className={styles.usageDesc}>
+              {t('account_pool.usage_desc', {
+                defaultValue: '记录 NewAPI 用户、请求模型以及实际命中的账号池邮箱。',
+              })}
+            </p>
+          </div>
+          <div className={styles.usageActions}>
+            <Button variant="secondary" size="sm" onClick={() => void loadUsageRecords()} loading={usageLoading}>
+              {t('common.refresh')}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => void clearUsageRecords()} disabled={usageRecords.length === 0}>
+              {t('common.clear', { defaultValue: '清空' })}
+            </Button>
+          </div>
+        </div>
+        {usageRecords.length === 0 ? (
+          <div className={styles.usageEmpty}>
+            {usageLoading
+              ? t('account_pool.usage_loading', { defaultValue: '正在加载使用记录...' })
+              : t('account_pool.usage_empty', { defaultValue: '暂无使用记录' })}
+          </div>
+        ) : (
+          <div className={styles.usageTableWrap}>
+            <table className={styles.usageTable}>
+              <thead>
+                <tr>
+                  <th>{t('account_pool.usage_time', { defaultValue: '时间' })}</th>
+                  <th>{t('account_pool.usage_user', { defaultValue: 'NewAPI 用户' })}</th>
+                  <th>{t('account_pool.usage_service_email', { defaultValue: '服务账号邮箱' })}</th>
+                  <th>{t('account_pool.usage_model', { defaultValue: '模型' })}</th>
+                  <th>{t('account_pool.usage_status', { defaultValue: '状态' })}</th>
+                  <th>{t('account_pool.usage_tokens', { defaultValue: 'Token' })}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usageRecords.slice(0, 12).map((record) => {
+                  const userLabel = record.username || record.newapi_user_id || '-';
+                  const statusCode = record.status_code ?? (record.success ? 200 : 0);
+                  return (
+                    <tr key={record.id}>
+                      <td>{formatUsageRecordTime(record.requested_at)}</td>
+                      <td>
+                        <div className={styles.usageStrong}>{userLabel}</div>
+                        {record.newapi_user_id && (
+                          <div className={styles.usageMuted}>ID {record.newapi_user_id}</div>
+                        )}
+                        {record.session_id && (
+                          <div className={styles.usageMuted} title={record.session_id}>
+                            {record.session_id}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <div className={styles.usageStrong}>
+                          {record.service_email || record.auth_id || '-'}
+                        </div>
+                        {record.auth_index && (
+                          <div className={styles.usageMuted}>#{record.auth_index}</div>
+                        )}
+                      </td>
+                      <td>
+                        <div className={styles.usageStrong}>{record.alias || record.model || '-'}</div>
+                        <div className={styles.usageMuted}>{record.provider || '-'}</div>
+                      </td>
+                      <td>
+                        <span className={record.success ? styles.usageStatusOk : styles.usageStatusError}>
+                          {statusCode || (record.success ? 'OK' : 'ERR')}
+                        </span>
+                        {typeof record.latency_ms === 'number' && record.latency_ms > 0 && (
+                          <div className={styles.usageMuted}>{record.latency_ms} ms</div>
+                        )}
+                      </td>
+                      <td>{record.total_tokens ?? 0}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       <Card>
         <div className={styles.toolbar}>

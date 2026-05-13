@@ -44,6 +44,28 @@ type AuthFileBatchDeleteResult = {
   files: string[];
   failed: AuthFileBatchFailure[];
 };
+export type AccountPoolUsageRecord = {
+  id: string;
+  requested_at: string;
+  request_id?: string;
+  request_path?: string;
+  session_id?: string;
+  newapi_user_id?: string;
+  username?: string;
+  provider?: string;
+  model?: string;
+  alias?: string;
+  service_email?: string;
+  auth_id?: string;
+  auth_index?: string;
+  auth_type?: string;
+  success: boolean;
+  status_code?: number;
+  latency_ms?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+};
 
 export const AUTH_FILE_INVALID_JSON_OBJECT_ERROR = 'AUTH_FILE_INVALID_JSON_OBJECT';
 
@@ -491,6 +513,15 @@ export const authFilesApi = {
     });
     return response.data as Blob;
   },
+
+  getAccountPoolUsageRecords: async (limit = 80): Promise<AccountPoolUsageRecord[]> => {
+    const response = await apiClient.get<{ records?: AccountPoolUsageRecord[] }>(
+      `/account-pool/usage-records?limit=${encodeURIComponent(String(limit))}`
+    );
+    return Array.isArray(response.records) ? response.records : [];
+  },
+
+  clearAccountPoolUsageRecords: () => apiClient.delete('/account-pool/usage-records'),
 
   async downloadJsonObject(name: string): Promise<Record<string, unknown>> {
     const rawText = await authFilesApi.downloadText(name);
