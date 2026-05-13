@@ -31,6 +31,7 @@ type AccountCheckResult = {
 };
 
 const ACCOUNT_CHECK_CONCURRENCY = 5;
+const ACCOUNT_POOL_STORAGE_KEY = 'cli-proxy-account-pool';
 const QUOTA_CONFIGS = [
   CLAUDE_CONFIG,
   ANTIGRAVITY_CONFIG,
@@ -38,6 +39,13 @@ const QUOTA_CONFIGS = [
   GEMINI_CLI_CONFIG,
   KIMI_CONFIG,
 ] as Array<QuotaConfig<unknown, unknown>>;
+
+type AccountPoolRecord = {
+  file: AuthFileItem;
+  content: string;
+  hash: string;
+  savedAt: number;
+};
 
 const isRuntimeOnly = (file: AuthFileItem): boolean => {
   const value = file.runtimeOnly ?? file['runtime_only'];
@@ -93,6 +101,64 @@ const hashText = async (value: string): Promise<string> => {
     .join('');
 };
 
+const readAccountPoolRecords = (): AccountPoolRecord[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(ACCOUNT_POOL_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.reduce<AccountPoolRecord[]>((records, item) => {
+      if (!item || typeof item !== 'object') return records;
+      const record = item as Partial<AccountPoolRecord>;
+      if (!record.file || typeof record.file !== 'object') return records;
+      if (typeof record.content !== 'string' || !record.content.trim()) return records;
+      if (typeof record.hash !== 'string' || !record.hash.trim()) return records;
+      records.push({
+        file: record.file,
+        content: record.content,
+        hash: record.hash,
+        savedAt: typeof record.savedAt === 'number' ? record.savedAt : 0,
+      });
+      return records;
+    }, []);
+  } catch {
+    return [];
+  }
+};
+
+const writeAccountPoolRecords = (records: AccountPoolRecord[]) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(ACCOUNT_POOL_STORAGE_KEY, JSON.stringify(records));
+};
+
+const uniqueAccountPoolRecords = (records: AccountPoolRecord[]): AccountPoolRecord[] => {
+  const byHash = new Map<string, AccountPoolRecord>();
+  records.forEach((record) => {
+    const existing = byHash.get(record.hash);
+    if (!existing || record.savedAt > existing.savedAt) {
+      byHash.set(record.hash, record);
+    }
+  });
+  return Array.from(byHash.values()).sort((left, right) =>
+    left.file.name.localeCompare(right.file.name)
+  );
+};
+
+const applyAccountPoolRecords = (
+  records: AccountPoolRecord[],
+  setFiles: (files: AuthFileItem[]) => void,
+  setFileContentCache: (cache: Record<string, string>) => void
+) => {
+  setFiles(records.map((record) => record.file));
+  setFileContentCache(
+    records.reduce<Record<string, string>>((cache, record) => {
+      cache[record.file.name] = record.content;
+      return cache;
+    }, {})
+  );
+};
+
 export function AccountPoolPage() {
   const { t } = useTranslation();
   const showNotification = useNotificationStore((state) => state.showNotification);
@@ -110,41 +176,44 @@ export function AccountPoolPage() {
   const loadFiles = useCallback(async () => {
     setLoading(true);
     setError('');
+    const storedRecords = uniqueAccountPoolRecords(readAccountPoolRecords());
+    applyAccountPoolRecords(storedRecords, setFiles, setFileContentCache);
     try {
       const response = await authFilesApi.list();
       const importedFiles = response.files.filter((file) => !isRuntimeOnly(file));
-      const dedupedFiles: AuthFileItem[] = [];
-      const nextContentCache: Record<string, string> = {};
-      const seen = new Set<string>();
+      const nextRecords = [...storedRecords];
+      const seenHashes = new Set(storedRecords.map((record) => record.hash));
 
       await Promise.all(
         importedFiles.map(async (file) => {
           try {
             const rawText = await authFilesApi.downloadText(file.name);
             const hash = await hashText(normalizeJsonForDedupe(rawText));
-            if (seen.has(hash)) return;
-            seen.add(hash);
-            nextContentCache[file.name] = rawText;
-            dedupedFiles.push(file);
+            if (seenHashes.has(hash)) return;
+            seenHashes.add(hash);
+            nextRecords.push({
+              file,
+              content: rawText,
+              hash,
+              savedAt: Date.now(),
+            });
           } catch {
-            if (seen.has(file.name)) return;
-            seen.add(file.name);
-            dedupedFiles.push(file);
+            // Keep the existing pool intact even when a source auth file can no longer be read.
           }
         })
       );
 
-      dedupedFiles.sort((left, right) => left.name.localeCompare(right.name));
-      setFiles(dedupedFiles);
-      setFileContentCache(nextContentCache);
+      const mergedRecords = uniqueAccountPoolRecords(nextRecords);
+      writeAccountPoolRecords(mergedRecords);
+      applyAccountPoolRecords(mergedRecords, setFiles, setFileContentCache);
       setSelectedNames((current) =>
-        current.filter((name) => dedupedFiles.some((file) => file.name === name))
+        current.filter((name) => mergedRecords.some((record) => record.file.name === name))
       );
       setCheckResults((current) => {
         const next: Record<string, AccountCheckResult> = {};
-        dedupedFiles.forEach((file) => {
-          if (current[file.name]) {
-            next[file.name] = current[file.name];
+        mergedRecords.forEach((record) => {
+          if (current[record.file.name]) {
+            next[record.file.name] = current[record.file.name];
           }
         });
         return next;
