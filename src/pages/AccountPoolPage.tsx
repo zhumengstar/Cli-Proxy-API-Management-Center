@@ -407,13 +407,13 @@ const matchesQuotaFilter = (
   filter: string
 ): boolean => {
   if (filter === DEFAULT_ACCOUNT_POOL_QUOTA_FILTER) return true;
-  const hasQuota = Boolean(result?.quotaLines?.length);
-  if (filter === 'with_quota') return hasQuota;
-  if (filter === 'without_quota') return !hasQuota;
+  const remainingPercent =
+    typeof result?.quotaRemainingPercent === 'number' ? result.quotaRemainingPercent : null;
+  const hasUsableQuota = remainingPercent !== null && remainingPercent > 0;
+  if (filter === 'with_quota') return hasUsableQuota;
+  if (filter === 'without_quota') return !hasUsableQuota;
   if (filter === 'low_quota') {
-    return typeof result?.quotaRemainingPercent === 'number'
-      ? result.quotaRemainingPercent <= LOW_ACCOUNT_POOL_QUOTA_PERCENT
-      : false;
+    return hasUsableQuota && remainingPercent <= LOW_ACCOUNT_POOL_QUOTA_PERCENT;
   }
   return true;
 };
@@ -1191,19 +1191,40 @@ export function AccountPoolPage() {
                                   typeof quota.percent === 'number'
                                     ? Math.max(0, Math.min(100, quota.percent))
                                     : null;
-                                const low = percent !== null && percent <= LOW_ACCOUNT_POOL_QUOTA_PERCENT;
+                                const empty = percent !== null && percent <= 0;
+                                const low =
+                                  percent !== null &&
+                                  percent > 0 &&
+                                  percent <= LOW_ACCOUNT_POOL_QUOTA_PERCENT;
                                 return (
-                                  <div className={styles.quotaItem} key={`${quota.label}-${quota.reset}`}>
+                                  <div
+                                    className={empty ? styles.quotaItemEmpty : styles.quotaItem}
+                                    key={`${quota.label}-${quota.reset}`}
+                                  >
                                     <div className={styles.quotaItemTop}>
                                       <span className={styles.quotaName}>{quota.label}</span>
-                                      <span className={low ? styles.quotaLowValue : styles.quotaValue}>
+                                      <span
+                                        className={
+                                          empty
+                                            ? styles.quotaEmptyValue
+                                            : low
+                                              ? styles.quotaLowValue
+                                              : styles.quotaValue
+                                        }
+                                      >
                                         {quota.remaining}
                                       </span>
                                     </div>
                                     {percent !== null && (
                                       <div className={styles.quotaTrack}>
                                         <span
-                                          className={low ? styles.quotaFillLow : styles.quotaFill}
+                                          className={
+                                            empty
+                                              ? styles.quotaFillEmpty
+                                              : low
+                                                ? styles.quotaFillLow
+                                                : styles.quotaFill
+                                          }
                                           style={{ width: `${percent}%` }}
                                         />
                                       </div>
