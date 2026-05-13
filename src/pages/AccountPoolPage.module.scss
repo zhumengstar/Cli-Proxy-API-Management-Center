@@ -51,6 +51,10 @@
 }
 
 .toolbar {
+  --account-pool-control-height: 40px;
+  --account-pool-filter-width: 124px;
+  --account-pool-number-width: 64px;
+
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-start;
@@ -70,10 +74,14 @@
 
 .filterControls {
   display: grid;
-  grid-template-columns: minmax(240px, 340px) 128px 112px 112px 112px 152px;
+  grid-template-columns: minmax(240px, 340px) repeat(5, var(--account-pool-filter-width));
   align-items: center;
   gap: $spacing-sm;
   min-width: 0;
+
+  :global(.form-group) {
+    margin-bottom: 0;
+  }
 }
 
 .toolbarMeta {
@@ -91,24 +99,17 @@
 }
 
 .searchInput {
+  height: var(--account-pool-control-height);
+  box-sizing: border-box;
   width: 100%;
 }
 
-.typeSelect {
-  width: 128px;
-}
-
-.planSelect {
-  width: 112px;
-}
-
-.sortSelect {
-  width: 152px;
-}
-
+.typeSelect,
+.planSelect,
 .statusSelect,
-.quotaSelect {
-  width: 112px;
+.quotaSelect,
+.sortSelect {
+  width: var(--account-pool-filter-width);
 }
 
 .stats {
@@ -121,6 +122,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-height: var(--account-pool-control-height);
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 600;
@@ -129,10 +131,10 @@
 
 .pageSizeInput,
 .checkConcurrencyInput {
-  width: 64px;
-  height: 36px;
+  width: var(--account-pool-number-width);
+  height: var(--account-pool-control-height);
   box-sizing: border-box;
-  padding: 7px 10px;
+  padding: 0 10px;
   border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
   border-radius: 8px;
   background: var(--bg-secondary);
@@ -146,8 +148,16 @@
   }
 }
 
-.checkConcurrencyInput {
-  width: 56px;
+.selectionActions {
+  min-height: var(--account-pool-control-height);
+
+  :global(.btn) {
+    min-height: var(--account-pool-control-height);
+  }
+
+  label {
+    min-height: var(--account-pool-control-height);
+  }
 }
 
 @media (max-width: 1280px) {
