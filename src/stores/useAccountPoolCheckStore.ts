@@ -5,6 +5,7 @@ export type AccountCheckStatus = 'idle' | 'loading' | 'success' | 'error' | 'uns
 export type AccountCheckResult = {
   status: AccountCheckStatus;
   message?: string;
+  plan?: string;
 };
 
 type AccountCheckRecordRef = {
@@ -74,6 +75,7 @@ const readPersistedResults = (): Pick<AccountPoolCheckState, 'results' | 'result
         results[name] = {
           status,
           message: typeof value.message === 'string' ? value.message : undefined,
+          plan: typeof value.plan === 'string' ? value.plan : undefined,
         };
       });
     }

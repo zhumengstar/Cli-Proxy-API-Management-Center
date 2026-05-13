@@ -19,7 +19,7 @@ import {
 import type { AuthFileItem } from '@/types/authFile';
 import { downloadBlob } from '@/utils/download';
 import { formatUnixTimestamp } from '@/utils/format';
-import { getStatusFromError } from '@/utils/quota';
+import { getStatusFromError, normalizePlanType } from '@/utils/quota';
 import { createZipBlob } from '@/utils/zip';
 import {
   ACCOUNT_POOL_UPDATED_EVENT,
@@ -159,8 +159,12 @@ const getRegistrationTime = (
 
 const getPlanValue = (
   file: AuthFileItem,
-  fileContentCache: Record<string, string>
+  fileContentCache: Record<string, string>,
+  checkedPlan?: string
 ): string => {
+  const normalizedCheckedPlan = normalizePlanType(checkedPlan);
+  if (normalizedCheckedPlan) return normalizedCheckedPlan;
+
   const metadata =
     file.metadata && typeof file.metadata === 'object' && !Array.isArray(file.metadata)
       ? (file.metadata as Record<string, unknown>)
@@ -214,10 +218,11 @@ const getPlanValue = (
 const matchesPlanFilter = (
   file: AuthFileItem,
   fileContentCache: Record<string, string>,
+  checkedPlan: string | undefined,
   planFilter: string
 ): boolean => {
   if (planFilter === DEFAULT_ACCOUNT_POOL_PLAN_FILTER) return true;
-  const plan = getPlanValue(file, fileContentCache);
+  const plan = getPlanValue(file, fileContentCache, checkedPlan);
   if (!plan) return false;
   if (planFilter === 'free') return plan.includes('free');
   if (planFilter === 'plus') return plan.includes('plus');
@@ -232,6 +237,39 @@ const getModifiedTime = (file: AuthFileItem): number | null => {
     if (value !== null) return value;
   }
   return null;
+};
+
+const getDetectedPlan = (value: unknown): string | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const candidates = [
+    record.planType,
+    record.plan_type,
+    record.plan,
+    record.tierLabel,
+    record.tier_label,
+    record.tierId,
+    record.tier_id,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const normalized = normalizePlanType(candidate);
+    if (normalized) return normalized;
+  }
+  return undefined;
+};
+
+const getPlanLabel = (plan?: string): string => {
+  const normalized = normalizePlanType(plan);
+  if (!normalized) return '';
+  if (normalized === 'free') return 'Free';
+  if (normalized === 'plus') return 'Plus';
+  if (normalized === 'pro') return 'Pro';
+  if (normalized === 'team') return 'Team';
+  if (normalized === 'prolite' || normalized === 'pro-lite' || normalized === 'pro_lite') {
+    return 'Pro Lite';
+  }
+  return plan ?? normalized;
 };
 
 const buildDownloadFileName = () => {
@@ -404,7 +442,7 @@ export function AccountPoolPage() {
     return files
       .filter((file) => {
         if (typeFilter !== 'all' && getFileType(file) !== typeFilter) return false;
-        if (!matchesPlanFilter(file, fileContentCache, planFilter)) return false;
+        if (!matchesPlanFilter(file, fileContentCache, checkResults[file.name]?.plan, planFilter)) return false;
         if (!term) return true;
         return [file.name, getFileType(file), file.statusMessage, file.status]
           .some((value) => String(value ?? '').toLowerCase().includes(term));
@@ -671,10 +709,11 @@ export function AccountPoolPage() {
         }
 
         try {
-          await config.fetchQuota(file, t);
+          const quota = await config.fetchQuota(file, t);
           setCheckResult(runId, file.name, {
             status: 'success',
             message: t('account_pool.check_success'),
+            plan: getDetectedPlan(quota),
           });
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : t('common.unknown_error');
@@ -894,6 +933,7 @@ export function AccountPoolPage() {
               const modifiedLabel = getFileModifiedLabel(file);
               const statusMessage = String(file.statusMessage || file['status_message'] || '');
               const checkResult = checkResults[file.name];
+              const planLabel = getPlanLabel(checkResult?.plan);
               return (
                 <div
                   key={file.name}
@@ -909,6 +949,7 @@ export function AccountPoolPage() {
                       <div className={styles.fileName}>{file.name}</div>
                       <div className={styles.metaRow}>
                         <span className={styles.typeBadge}>{type}</span>
+                        {planLabel && <span className={styles.planBadge}>{planLabel}</span>}
                         {modifiedLabel && <span className={styles.muted}>{modifiedLabel}</span>}
                       </div>
                     </div>
@@ -927,7 +968,9 @@ export function AccountPoolPage() {
                     >
                       {checkResult.status === 'loading'
                         ? t('account_pool.checking')
-                        : checkResult.message}
+                        : [checkResult.message, planLabel ? `Plan: ${planLabel}` : '']
+                            .filter(Boolean)
+                            .join(' / ')}
                     </div>
                   )}
                   {statusMessage && <div className={styles.statusLine}>{statusMessage}</div>}

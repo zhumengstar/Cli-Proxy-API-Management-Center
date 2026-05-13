@@ -255,6 +255,18 @@
   font-weight: 650;
 }
 
+.planBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success-color) 13%, var(--bg-secondary));
+  color: var(--success-color);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .muted {
   color: var(--text-tertiary);
   font-size: 12px;
