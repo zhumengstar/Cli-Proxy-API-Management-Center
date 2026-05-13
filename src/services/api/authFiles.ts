@@ -53,10 +53,10 @@ const getStatusCode = (err: unknown): number | undefined => {
   return undefined;
 };
 
-const getLocalManagementUploadUrl = (): string | null => {
+const getLocalManagementUrl = (path: string): string | null => {
   if (typeof window === 'undefined') return null;
   const apiUrl = computeApiUrl(detectApiBaseFromLocation());
-  return apiUrl ? `${apiUrl}/auth-files` : null;
+  return apiUrl ? `${apiUrl}${path}` : null;
 };
 
 const normalizeRequestedAuthFileNames = (names: string[]): string[] => {
@@ -422,7 +422,15 @@ const normalizeOauthModelAlias = (payload: unknown): Record<string, OAuthModelAl
 const OAUTH_MODEL_ALIAS_ENDPOINT = '/oauth-model-alias';
 
 export const authFilesApi = {
-  list: async () => dedupeAuthFilesResponse(await apiClient.get<AuthFilesResponse>('/auth-files')),
+  list: async () => {
+    try {
+      return dedupeAuthFilesResponse(await apiClient.get<AuthFilesResponse>('/auth-files'));
+    } catch (err) {
+      const fallbackUrl = getStatusCode(err) === 404 ? getLocalManagementUrl('/auth-files') : null;
+      if (!fallbackUrl) throw err;
+      return dedupeAuthFilesResponse(await apiClient.get<AuthFilesResponse>(fallbackUrl));
+    }
+  },
 
   setStatus: (name: string, disabled: boolean) =>
     apiClient.patch<AuthFileStatusResponse>('/auth-files/status', { name, disabled }),
@@ -443,7 +451,7 @@ export const authFilesApi = {
     try {
       payload = await uploadAuthFilesForm('/auth-files', files);
     } catch (err) {
-      const fallbackUrl = getStatusCode(err) === 404 ? getLocalManagementUploadUrl() : null;
+      const fallbackUrl = getStatusCode(err) === 404 ? getLocalManagementUrl('/auth-files') : null;
       if (!fallbackUrl) throw err;
       payload = await uploadAuthFilesForm(fallbackUrl, files);
     }
