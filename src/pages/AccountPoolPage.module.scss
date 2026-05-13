@@ -11,6 +11,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: $spacing-md;
 
   @include mobile {
@@ -48,6 +49,59 @@
     min-height: 38px;
     white-space: nowrap;
   }
+}
+
+.headerStats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 280px;
+  gap: 8px;
+  min-width: 220px;
+  padding: 0 $spacing-sm;
+  flex-wrap: wrap;
+}
+
+.statPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 64px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.statPill strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.statPillSuccess {
+  border-color: color-mix(in srgb, var(--success-color) 30%, var(--border-color));
+  background: color-mix(in srgb, var(--success-color) 10%, var(--bg-secondary));
+  color: var(--success-color);
+}
+
+.statPillWarning {
+  border-color: color-mix(in srgb, var(--quota-medium-color, #e0aa14) 36%, var(--border-color));
+  background: color-mix(in srgb, var(--quota-medium-color, #e0aa14) 12%, var(--bg-secondary));
+  color: var(--quota-medium-color, #a87400);
+}
+
+.statPillError {
+  border-color: color-mix(in srgb, var(--danger-color) 34%, var(--border-color));
+  background: color-mix(in srgb, var(--danger-color) 9%, var(--bg-secondary));
+  color: var(--danger-color);
 }
 
 .toolbar {
@@ -172,9 +226,27 @@
   .toolbarMeta {
     justify-content: flex-start;
   }
+
+  .headerStats {
+    justify-content: flex-start;
+    order: 3;
+    width: 100%;
+    padding: 0;
+  }
 }
 
 @include mobile {
+  .pageHeader {
+    align-items: stretch;
+  }
+
+  .headerStats,
+  .headerActions {
+    justify-content: flex-start;
+    max-width: none;
+    padding: 0;
+  }
+
   .filterControls {
     grid-template-columns: 1fr 1fr;
     width: 100%;

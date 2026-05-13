@@ -465,6 +465,29 @@ const getCheckSortRank = (status?: string): number => {
   return 4;
 };
 
+const getStatusCodeDescription = (code: number): string => {
+  if (code >= 200 && code < 300) return '请求成功，凭证可用，额度接口返回正常。';
+  if (code === 400) return '请求参数或账号数据格式异常，可能是认证文件内容不完整。';
+  if (code === 401) return '认证失败，通常是 token 失效、账号退出登录或凭证无效。';
+  if (code === 403) return '权限不足或账号被限制，可能没有访问该额度接口的权限。';
+  if (code === 404) return '接口不存在或当前账号类型不支持该额度接口。';
+  if (code === 408) return '请求超时，上游接口没有及时响应。';
+  if (code === 409) return '请求冲突，可能是账号状态或上游会话状态不一致。';
+  if (code === 429) return '请求过多或额度受限，上游触发限流。';
+  if (code >= 400 && code < 500) return '客户端或凭证侧错误，请检查账号状态、权限和认证文件。';
+  if (code >= 500 && code < 600) return '上游服务异常或临时不可用，可以稍后重试。';
+  return '接口返回的其他状态码，请结合错误详情判断。';
+};
+
+const getStatusCodePillClassName = (code: number, styles: Record<string, string>): string => {
+  if (code >= 200 && code < 300) return `${styles.statPill} ${styles.statPillSuccess}`;
+  if (code === 401 || code === 403 || code === 429 || code >= 500) {
+    return `${styles.statPill} ${styles.statPillError}`;
+  }
+  if (code >= 400) return `${styles.statPill} ${styles.statPillWarning}`;
+  return styles.statPill;
+};
+
 const compareOptionalTime = (
   left: number | null,
   right: number | null,
@@ -696,6 +719,40 @@ export function AccountPoolPage() {
     () => files.filter((file) => checkResults[file.name]?.status === 'success'),
     [checkResults, files]
   );
+  const statusCodeStats = useMemo(() => {
+    const byCode = new Map<number, number>();
+    let unchecked = 0;
+    let unsupported = 0;
+    let unknownError = 0;
+
+    for (const file of files) {
+      const result = checkResults[file.name];
+      if (!result || result.status === 'loading') {
+        unchecked += 1;
+        continue;
+      }
+      if (result.status === 'unsupported') {
+        unsupported += 1;
+        continue;
+      }
+      if (typeof result.statusCode === 'number') {
+        byCode.set(result.statusCode, (byCode.get(result.statusCode) ?? 0) + 1);
+        continue;
+      }
+      if (result.status === 'error') {
+        unknownError += 1;
+      } else {
+        unchecked += 1;
+      }
+    }
+
+    return {
+      codes: Array.from(byCode.entries()).sort(([left], [right]) => left - right),
+      unchecked,
+      unsupported,
+      unknownError,
+    };
+  }, [checkResults, files]);
 
   useEffect(() => {
     if (page > totalPages) {
@@ -926,6 +983,7 @@ export function AccountPoolPage() {
             plan: getDetectedPlan(quota),
             quotaLines: quotaSummary.lines,
             quotaRemainingPercent: quotaSummary.remainingPercent,
+            statusCode: 200,
             checkedAt: Date.now(),
           });
         } catch (err: unknown) {
@@ -934,6 +992,7 @@ export function AccountPoolPage() {
           setCheckResult(runId, file.name, {
             status: 'error',
             message: status ? `${status}: ${message}` : message,
+            statusCode: status,
             checkedAt: Date.now(),
           });
         }
@@ -975,6 +1034,39 @@ export function AccountPoolPage() {
         <div>
           <h1 className={styles.pageTitle}>{t('account_pool.title')}</h1>
           <p className={styles.description}>{t('account_pool.description')}</p>
+        </div>
+        <div className={styles.headerStats} aria-label={t('account_pool.status_stats', { defaultValue: '状态码统计' })}>
+          {statusCodeStats.codes.map(([code, count]) => (
+            <span
+              className={getStatusCodePillClassName(code, styles)}
+              key={code}
+              title={`${code}：${getStatusCodeDescription(code)}`}
+            >
+              {code}
+              <strong>{count}</strong>
+            </span>
+          ))}
+          {statusCodeStats.unknownError > 0 && (
+            <span
+              className={`${styles.statPill} ${styles.statPillError}`}
+              title="未知错误：检测过程抛出了错误，但没有拿到明确的 HTTP 状态码。"
+            >
+              {t('account_pool.stat_unknown_error', { defaultValue: '未知错误' })}
+              <strong>{statusCodeStats.unknownError}</strong>
+            </span>
+          )}
+          {statusCodeStats.unsupported > 0 && (
+            <span className={styles.statPill} title="不支持：该认证文件类型暂未接入额度检测逻辑。">
+              {t('account_pool.stat_unsupported', { defaultValue: '不支持' })}
+              <strong>{statusCodeStats.unsupported}</strong>
+            </span>
+          )}
+          {statusCodeStats.unchecked > 0 && (
+            <span className={styles.statPill} title="未检测：该账号还没有执行过检测，或当前正在等待检测结果。">
+              {t('account_pool.stat_unchecked', { defaultValue: '未检测' })}
+              <strong>{statusCodeStats.unchecked}</strong>
+            </span>
+          )}
         </div>
         <div className={styles.headerActions}>
           <Button variant="secondary" size="sm" onClick={() => void syncFiles()} loading={loading}>

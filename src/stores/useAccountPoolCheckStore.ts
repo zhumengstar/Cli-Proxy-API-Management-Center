@@ -8,6 +8,7 @@ export type AccountCheckResult = {
   plan?: string;
   quotaLines?: string[];
   quotaRemainingPercent?: number;
+  statusCode?: number;
   checkedAt?: number;
 };
 
@@ -54,6 +55,16 @@ const createRunId = () => `account-pool-check-${Date.now()}-${Math.random().toSt
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object';
 
+const resolveStoredStatusCode = (value: Record<string, unknown>): number | undefined => {
+  if (typeof value.statusCode === 'number') return value.statusCode;
+  if (value.status === 'success') return 200;
+  if (typeof value.message !== 'string') return undefined;
+  const match = value.message.match(/^(\d{3})\s*:/);
+  if (!match) return undefined;
+  const code = Number(match[1]);
+  return Number.isFinite(code) ? code : undefined;
+};
+
 const readPersistedResults = (): Pick<AccountPoolCheckState, 'results' | 'resultHashes'> => {
   if (typeof window === 'undefined') return { results: {}, resultHashes: {} };
   try {
@@ -84,6 +95,7 @@ const readPersistedResults = (): Pick<AccountPoolCheckState, 'results' | 'result
             : undefined,
           quotaRemainingPercent:
             typeof value.quotaRemainingPercent === 'number' ? value.quotaRemainingPercent : undefined,
+          statusCode: resolveStoredStatusCode(value),
           checkedAt: typeof value.checkedAt === 'number' ? value.checkedAt : undefined,
         };
       });
