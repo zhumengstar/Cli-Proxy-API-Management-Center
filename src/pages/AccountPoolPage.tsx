@@ -724,11 +724,12 @@ export function AccountPoolPage() {
           <p className={styles.description}>{t('account_pool.description')}</p>
         </div>
         <div className={styles.headerActions}>
-          <Button variant="secondary" onClick={() => void syncFiles()} loading={loading}>
+          <Button variant="secondary" size="sm" onClick={() => void syncFiles()} loading={loading}>
             {t('account_pool.sync')}
           </Button>
           <Button
             variant="secondary"
+            size="sm"
             onClick={() => void detectAccounts(selectedFiles)}
             loading={checking && selectedFiles.length > 0}
             disabled={checking || selectedFiles.length === 0}
@@ -737,6 +738,7 @@ export function AccountPoolPage() {
           </Button>
           <Button
             variant="secondary"
+            size="sm"
             onClick={() => void detectAccounts(files)}
             loading={checking && selectedFiles.length === 0}
             disabled={checking || files.length === 0}
@@ -744,6 +746,7 @@ export function AccountPoolPage() {
             {t('account_pool.check_all')}
           </Button>
           <Button
+            size="sm"
             onClick={handleDownloadSelected}
             loading={downloading}
             disabled={selectedFiles.length === 0 || downloading}
@@ -752,6 +755,7 @@ export function AccountPoolPage() {
           </Button>
           <Button
             variant="secondary"
+            size="sm"
             onClick={() => void handleDownloadServerArchive()}
             loading={downloadingArchive}
             disabled={downloadingArchive}
@@ -760,6 +764,7 @@ export function AccountPoolPage() {
           </Button>
           <Button
             variant="danger"
+            size="sm"
             onClick={handleOverwritePassed}
             loading={overwritingPassed}
             disabled={overwritingPassed || passedFiles.length === 0}
@@ -782,6 +787,7 @@ export function AccountPoolPage() {
             />
             <Select
               className={styles.typeSelect}
+              fullWidth={false}
               value={typeFilter}
               options={typeOptions}
               onChange={setTypeFilter}
@@ -789,6 +795,7 @@ export function AccountPoolPage() {
             />
             <Select
               className={styles.planSelect}
+              fullWidth={false}
               value={planFilter}
               options={planOptions}
               onChange={setPlanFilter}
@@ -796,6 +803,7 @@ export function AccountPoolPage() {
             />
             <Select
               className={styles.sortSelect}
+              fullWidth={false}
               value={sortMode}
               options={sortOptions}
               onChange={setSortMode}

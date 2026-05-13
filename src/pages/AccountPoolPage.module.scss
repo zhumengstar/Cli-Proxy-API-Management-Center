@@ -9,7 +9,7 @@
 
 .pageHeader {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: $spacing-md;
 
@@ -40,33 +40,50 @@
   flex-wrap: wrap;
 }
 
+.headerActions {
+  justify-content: flex-end;
+  max-width: 960px;
+
+  :global(.btn) {
+    min-height: 38px;
+    white-space: nowrap;
+  }
+}
+
 .toolbar {
+  align-items: flex-start;
   justify-content: space-between;
   margin-bottom: $spacing-md;
 }
 
 .filters {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(220px, 360px) 116px 96px 150px auto auto;
   align-items: center;
   gap: $spacing-sm;
-  flex-wrap: wrap;
   min-width: 0;
+  flex: 1;
+
+  @include mobile {
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
 }
 
 .searchInput {
-  width: min(360px, 72vw);
+  width: 100%;
 }
 
 .typeSelect {
-  min-width: 116px;
+  width: 116px;
 }
 
 .planSelect {
-  min-width: 104px;
+  width: 96px;
 }
 
 .sortSelect {
-  min-width: 190px;
+  width: 150px;
 }
 
 .stats {
@@ -87,7 +104,7 @@
 
 .pageSizeInput,
 .checkConcurrencyInput {
-  width: 84px;
+  width: 64px;
   height: 36px;
   box-sizing: border-box;
   padding: 7px 10px;
@@ -105,7 +122,7 @@
 }
 
 .checkConcurrencyInput {
-  width: 72px;
+  width: 56px;
 }
 
 .poolGrid {
