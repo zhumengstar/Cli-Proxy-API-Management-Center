@@ -173,11 +173,29 @@ export function AccountPoolPage() {
   const [typeFilter, setTypeFilter] = useState('all');
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
 
-  const loadFiles = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const hydrateStoredPool = useCallback(() => {
     const storedRecords = uniqueAccountPoolRecords(readAccountPoolRecords());
     applyAccountPoolRecords(storedRecords, setFiles, setFileContentCache);
+    setSelectedNames((current) =>
+      current.filter((name) => storedRecords.some((record) => record.file.name === name))
+    );
+    setCheckResults((current) => {
+      const next: Record<string, AccountCheckResult> = {};
+      storedRecords.forEach((record) => {
+        if (current[record.file.name]) {
+          next[record.file.name] = current[record.file.name];
+        }
+      });
+      return next;
+    });
+    setLoading(false);
+    return storedRecords;
+  }, []);
+
+  const syncFiles = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    const storedRecords = hydrateStoredPool();
     try {
       const response = await authFilesApi.list();
       const importedFiles = response.files.filter((file) => !isRuntimeOnly(file));
@@ -224,11 +242,11 @@ export function AccountPoolPage() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [hydrateStoredPool, t]);
 
   useEffect(() => {
-    void loadFiles();
-  }, [loadFiles]);
+    hydrateStoredPool();
+  }, [hydrateStoredPool]);
 
   const typeOptions = useMemo(() => {
     const types = Array.from(new Set(files.map(getFileType))).sort((a, b) => a.localeCompare(b));
@@ -389,7 +407,7 @@ export function AccountPoolPage() {
           <p className={styles.description}>{t('account_pool.description')}</p>
         </div>
         <div className={styles.headerActions}>
-          <Button variant="secondary" onClick={loadFiles} loading={loading}>
+          <Button variant="secondary" onClick={() => void syncFiles()} loading={loading}>
             {t('account_pool.sync')}
           </Button>
           <Button
