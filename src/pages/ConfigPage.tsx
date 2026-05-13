@@ -22,6 +22,7 @@ import { configFileApi } from '@/services/api/configFile';
 import styles from './ConfigPage.module.scss';
 
 type ConfigEditorTab = 'visual' | 'source';
+type StatusError = { status?: number };
 
 const LazyConfigSourceEditor = lazy(() => import('@/components/config/ConfigSourceEditor'));
 
@@ -34,6 +35,13 @@ function readCommercialModeFromYaml(yamlContent: string): boolean {
     return false;
   }
 }
+
+const getConfigErrorMessage = (err: unknown, fallback: string): string => {
+  if (err && typeof err === 'object' && (err as StatusError).status === 404) {
+    return '配置接口不存在，已尝试自动切换到本机后端；请确认服务器地址为 http://127.0.0.1:8317。';
+  }
+  return err instanceof Error ? err.message : fallback;
+};
 
 export function ConfigPage() {
   const { t } = useTranslation();
@@ -83,7 +91,7 @@ export function ConfigPage() {
 
   const disableControls = connectionStatus !== 'connected';
   const isDirty = dirty || visualDirty;
-  const shouldRenderFloatingActions = isCurrentLayer;
+  const shouldRenderFloatingActions = isCurrentLayer && !error;
   const hasVisualModeError = !!visualParseError;
   const hasVisualValidationErrors =
     activeTab === 'visual' &&
@@ -101,8 +109,7 @@ export function ConfigPage() {
       setMergedYaml(data);
       loadVisualValuesFromYaml(data);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('notification.refresh_failed');
-      setError(message);
+      setError(getConfigErrorMessage(err, t('notification.refresh_failed')));
     } finally {
       setLoading(false);
     }
@@ -161,7 +168,7 @@ export function ConfigPage() {
         showNotification(t('notification.commercial_mode_restart_required'), 'warning');
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '';
+      const message = getConfigErrorMessage(err, '');
       showNotification(`${t('notification.save_failed')}: ${message}`, 'error');
     } finally {
       setSaving(false);
@@ -224,7 +231,7 @@ export function ConfigPage() {
       setMergedYaml(nextMergedYaml);
       setDiffModalOpen(true);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '';
+      const message = getConfigErrorMessage(err, '');
       showNotification(`${t('notification.save_failed')}: ${message}`, 'error');
     } finally {
       setSaving(false);
@@ -543,14 +550,24 @@ export function ConfigPage() {
 
       <div className={styles.workspaceShell}>
         <div className={styles.content}>
-          {error && <div className="error-box">{error}</div>}
+          {error && (
+            <div className={styles.configError}>
+              <div>
+                <strong>{t('config_management.status_load_failed')}</strong>
+                <p>{error}</p>
+              </div>
+              <Button variant="secondary" size="sm" onClick={() => void loadConfig()} disabled={loading}>
+                {t('config_management.reload')}
+              </Button>
+            </div>
+          )}
           {!error && visualParseError && (
             <div className="error-box">
               {t('config_management.visual_mode_unavailable_detail', { message: visualParseError })}
             </div>
           )}
 
-          {activeTab === 'visual' ? (
+          {!error && activeTab === 'visual' ? (
             <VisualConfigEditor
               values={visualValues}
               validationErrors={visualValidationErrors}
@@ -558,7 +575,7 @@ export function ConfigPage() {
               disabled={disableControls || loading}
               onChange={setVisualValues}
             />
-          ) : (
+          ) : !error ? (
             <div className={styles.sourceWorkspace}>
               <div className={styles.sourceToolbar}>
                 <div className={styles.searchInputWrapper}>
@@ -635,7 +652,7 @@ export function ConfigPage() {
                 </Suspense>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
