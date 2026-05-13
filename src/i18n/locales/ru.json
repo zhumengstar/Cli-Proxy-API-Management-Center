@@ -1232,6 +1232,7 @@
     "check_selected": "Проверить выбранные ({{count}})",
     "check_all": "Проверить все",
     "checking": "Проверка статуса аккаунта...",
+    "check_progress": "Фоновая проверка: {{done}} / {{total}}, успешно {{success}}, ошибок {{failed}}, не поддерживается {{unsupported}}",
     "check_success": "Проверка пройдена",
     "check_unsupported": "Этот тип аккаунта пока не поддерживает проверку",
     "check_done": "Проверка завершена: успешно {{success}}, ошибок {{failed}}, не поддерживается {{unsupported}}",

@@ -6,7 +6,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
-import { useNotificationStore } from '@/stores';
+import { useAccountPoolCheckStore, useNotificationStore } from '@/stores';
 import { authFilesApi } from '@/services/api';
 import {
   ANTIGRAVITY_CONFIG,
@@ -22,13 +22,6 @@ import { formatUnixTimestamp } from '@/utils/format';
 import { getStatusFromError } from '@/utils/quota';
 import { createZipBlob } from '@/utils/zip';
 import styles from './AccountPoolPage.module.scss';
-
-type AccountCheckStatus = 'idle' | 'loading' | 'success' | 'error' | 'unsupported';
-
-type AccountCheckResult = {
-  status: AccountCheckStatus;
-  message?: string;
-};
 
 const ACCOUNT_CHECK_CONCURRENCY = 5;
 const ACCOUNT_POOL_STORAGE_KEY = 'cli-proxy-account-pool';
@@ -168,13 +161,18 @@ const applyAccountPoolRecords = (
 export function AccountPoolPage() {
   const { t } = useTranslation();
   const showNotification = useNotificationStore((state) => state.showNotification);
+  const checking = useAccountPoolCheckStore((state) => state.checking);
+  const checkResults = useAccountPoolCheckStore((state) => state.results);
+  const checkSummary = useAccountPoolCheckStore((state) => state.summary);
+  const beginCheck = useAccountPoolCheckStore((state) => state.beginCheck);
+  const setCheckResult = useAccountPoolCheckStore((state) => state.setResult);
+  const finishCheck = useAccountPoolCheckStore((state) => state.finishCheck);
+  const pruneCheckResults = useAccountPoolCheckStore((state) => state.pruneResults);
   const [files, setFiles] = useState<AuthFileItem[]>([]);
   const [fileContentCache, setFileContentCache] = useState<Record<string, string>>({});
-  const [checkResults, setCheckResults] = useState<Record<string, AccountCheckResult>>({});
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [downloadingArchive, setDownloadingArchive] = useState(false);
-  const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -189,18 +187,10 @@ export function AccountPoolPage() {
     setSelectedNames((current) =>
       current.filter((name) => storedRecords.some((record) => record.file.name === name))
     );
-    setCheckResults((current) => {
-      const next: Record<string, AccountCheckResult> = {};
-      storedRecords.forEach((record) => {
-        if (current[record.file.name]) {
-          next[record.file.name] = current[record.file.name];
-        }
-      });
-      return next;
-    });
+    pruneCheckResults(storedRecords.map((record) => record.file.name));
     setLoading(false);
     return storedRecords;
-  }, []);
+  }, [pruneCheckResults]);
 
   const syncFiles = useCallback(async () => {
     setLoading(true);
@@ -237,15 +227,7 @@ export function AccountPoolPage() {
       setSelectedNames((current) =>
         current.filter((name) => mergedRecords.some((record) => record.file.name === name))
       );
-      setCheckResults((current) => {
-        const next: Record<string, AccountCheckResult> = {};
-        mergedRecords.forEach((record) => {
-          if (current[record.file.name]) {
-            next[record.file.name] = current[record.file.name];
-          }
-        });
-        return next;
-      });
+      pruneCheckResults(mergedRecords.map((record) => record.file.name));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('notification.refresh_failed');
       setError(message);
@@ -398,18 +380,8 @@ export function AccountPoolPage() {
 
   const detectAccounts = async (targets: AuthFileItem[]) => {
     if (targets.length === 0 || checking) return;
-    setChecking(true);
-    let success = 0;
-    let failed = 0;
-    let unsupported = 0;
-
-    setCheckResults((current) => {
-      const next = { ...current };
-      targets.forEach((file) => {
-        next[file.name] = { status: 'loading' };
-      });
-      return next;
-    });
+    const runId = beginCheck(targets.map((file) => file.name));
+    if (!runId) return;
 
     let cursor = 0;
     const worker = async () => {
@@ -421,38 +393,26 @@ export function AccountPoolPage() {
 
         const config = resolveQuotaConfig(file);
         if (!config) {
-          unsupported += 1;
-          setCheckResults((current) => ({
-            ...current,
-            [file.name]: {
-              status: 'unsupported',
-              message: t('account_pool.check_unsupported'),
-            },
-          }));
+          setCheckResult(runId, file.name, {
+            status: 'unsupported',
+            message: t('account_pool.check_unsupported'),
+          });
           continue;
         }
 
         try {
           await config.fetchQuota(file, t);
-          success += 1;
-          setCheckResults((current) => ({
-            ...current,
-            [file.name]: {
-              status: 'success',
-              message: t('account_pool.check_success'),
-            },
-          }));
+          setCheckResult(runId, file.name, {
+            status: 'success',
+            message: t('account_pool.check_success'),
+          });
         } catch (err: unknown) {
-          failed += 1;
           const message = err instanceof Error ? err.message : t('common.unknown_error');
           const status = getStatusFromError(err);
-          setCheckResults((current) => ({
-            ...current,
-            [file.name]: {
-              status: 'error',
-              message: status ? `${status}: ${message}` : message,
-            },
-          }));
+          setCheckResult(runId, file.name, {
+            status: 'error',
+            message: status ? `${status}: ${message}` : message,
+          });
         }
       }
     };
@@ -461,12 +421,28 @@ export function AccountPoolPage() {
       await Promise.all(
         Array.from({ length: Math.min(ACCOUNT_CHECK_CONCURRENCY, targets.length) }, () => worker())
       );
+      const summary = finishCheck(runId);
+      if (!summary) return;
       showNotification(
-        t('account_pool.check_done', { success, failed, unsupported }),
-        failed > 0 ? 'warning' : 'success'
+        t('account_pool.check_done', {
+          success: summary.success,
+          failed: summary.failed,
+          unsupported: summary.unsupported,
+        }),
+        summary.failed > 0 ? 'warning' : 'success'
       );
-    } finally {
-      setChecking(false);
+    } catch {
+      const summary = finishCheck(runId);
+      if (summary) {
+        showNotification(
+          t('account_pool.check_done', {
+            success: summary.success,
+            failed: summary.failed,
+            unsupported: summary.unsupported,
+          }),
+          summary.failed > 0 ? 'warning' : 'success'
+        );
+      }
     }
   };
 
@@ -567,6 +543,18 @@ export function AccountPoolPage() {
             </Button>
           </div>
         </div>
+
+        {checking && (
+          <div className={styles.checkProgress}>
+            {t('account_pool.check_progress', {
+              done: checkSummary.done,
+              total: checkSummary.total,
+              success: checkSummary.success,
+              failed: checkSummary.failed,
+              unsupported: checkSummary.unsupported,
+            })}
+          </div>
+        )}
 
         {loading ? (
           <div className={styles.hint}>{t('common.loading')}</div>

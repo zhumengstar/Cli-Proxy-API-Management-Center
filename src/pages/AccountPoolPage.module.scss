@@ -194,6 +194,17 @@
   padding-top: $spacing-sm;
 }
 
+.checkProgress {
+  margin-bottom: $spacing-md;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 18%, var(--border-color));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary-color) 7%, var(--bg-primary));
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .checkSuccess {
   color: var(--success-color);
 }

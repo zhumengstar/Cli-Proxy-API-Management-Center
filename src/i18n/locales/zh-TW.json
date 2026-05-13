@@ -1261,6 +1261,7 @@
     "check_selected": "檢測選取 ({{count}})",
     "check_all": "檢測全部",
     "checking": "正在檢測帳號狀態...",
+    "check_progress": "後台檢測中：{{done}} / {{total}}，通過 {{success}}，失敗 {{failed}}，不支援 {{unsupported}}",
     "check_success": "檢測通過",
     "check_unsupported": "此帳號類型暫不支援檢測",
     "check_done": "檢測完成：通過 {{success}}，失敗 {{failed}}，不支援 {{unsupported}}",

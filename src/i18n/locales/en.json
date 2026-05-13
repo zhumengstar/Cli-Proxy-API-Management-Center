@@ -1235,6 +1235,7 @@
     "check_selected": "Check selected ({{count}})",
     "check_all": "Check all",
     "checking": "Checking account status...",
+    "check_progress": "Checking in background: {{done}} / {{total}}, {{success}} passed, {{failed}} failed, {{unsupported}} unsupported",
     "check_success": "Check passed",
     "check_unsupported": "This account type does not support checks yet",
     "check_done": "Check complete: {{success}} passed, {{failed}} failed, {{unsupported}} unsupported",

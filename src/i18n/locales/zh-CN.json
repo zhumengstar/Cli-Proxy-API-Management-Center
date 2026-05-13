@@ -1235,6 +1235,7 @@
     "check_selected": "检测选中 ({{count}})",
     "check_all": "检测全部",
     "checking": "正在检测账号状态...",
+    "check_progress": "后台检测中：{{done}} / {{total}}，通过 {{success}}，失败 {{failed}}，不支持 {{unsupported}}",
     "check_success": "检测通过",
     "check_unsupported": "该账号类型暂不支持检测",
     "check_done": "检测完成：通过 {{success}}，失败 {{failed}}，不支持 {{unsupported}}",
