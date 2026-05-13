@@ -40,6 +40,9 @@ const MAX_ACCOUNT_POOL_PAGE_SIZE = 200;
 const DEFAULT_ACCOUNT_POOL_PAGE_SIZE = 24;
 const DEFAULT_ACCOUNT_POOL_SORT_MODE = 'check';
 const DEFAULT_ACCOUNT_POOL_PLAN_FILTER = 'all';
+const DEFAULT_ACCOUNT_POOL_CHECK_STATUS_FILTER = 'all';
+const DEFAULT_ACCOUNT_POOL_QUOTA_FILTER = 'all';
+const LOW_ACCOUNT_POOL_QUOTA_PERCENT = 20;
 const QUOTA_CONFIGS = [
   CLAUDE_CONFIG,
   ANTIGRAVITY_CONFIG,
@@ -272,6 +275,113 @@ const getPlanLabel = (plan?: string): string => {
   return plan ?? normalized;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const getStringValue = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() ? value.trim() : undefined;
+
+const getNumberValue = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const formatPercent = (value: number | null): string => {
+  if (value === null) return '--';
+  return `${Math.round(Math.max(0, Math.min(100, value)))}%`;
+};
+
+const resolveQuotaLabel = (record: Record<string, unknown>, t: ReturnType<typeof useTranslation>['t']): string => {
+  const labelKey = getStringValue(record.labelKey);
+  if (labelKey) return t(labelKey, record.labelParams as Record<string, string | number>);
+  return getStringValue(record.label) ?? getStringValue(record.id) ?? 'Quota';
+};
+
+const buildQuotaLine = (
+  label: string,
+  remaining: string,
+  reset?: string
+): string => `${label}: ${remaining}${reset && reset !== '-' ? ` / ${reset}` : ''}`;
+
+const getQuotaSummary = (
+  value: unknown,
+  t: ReturnType<typeof useTranslation>['t']
+): { lines: string[]; remainingPercent?: number } => {
+  const source = Array.isArray(value)
+    ? value
+    : isRecord(value) && Array.isArray(value.windows)
+      ? value.windows
+      : isRecord(value) && Array.isArray(value.buckets)
+        ? value.buckets
+        : isRecord(value) && Array.isArray(value.groups)
+          ? value.groups
+          : isRecord(value) && Array.isArray(value.rows)
+            ? value.rows
+            : [];
+
+  const remainingPercents: number[] = [];
+  const lines = source.reduce<string[]>((result, item) => {
+    if (!isRecord(item)) return result;
+    const label = resolveQuotaLabel(item, t);
+    const usedPercent = getNumberValue(item.usedPercent ?? item.used_percent);
+    const remainingFraction = getNumberValue(item.remainingFraction ?? item.remaining_fraction);
+    const remainingAmount = getNumberValue(item.remainingAmount ?? item.remaining_amount);
+    const used = getNumberValue(item.used);
+    const limit = getNumberValue(item.limit);
+    const reset = getStringValue(item.resetLabel) ?? getStringValue(item.resetTime) ?? getStringValue(item.resetHint);
+
+    let remaining = '--';
+    if (usedPercent !== null) {
+      const remainingPercent = Math.max(0, Math.min(100, 100 - usedPercent));
+      remainingPercents.push(remainingPercent);
+      remaining = formatPercent(remainingPercent);
+    } else if (remainingFraction !== null) {
+      const remainingPercent = Math.max(0, Math.min(100, remainingFraction * 100));
+      remainingPercents.push(remainingPercent);
+      remaining = formatPercent(remainingPercent);
+    } else if (remainingAmount !== null) {
+      remaining = `${remainingAmount}`;
+    } else if (used !== null && limit !== null && limit > 0) {
+      remaining = formatPercent(((limit - used) / limit) * 100);
+    }
+
+    result.push(buildQuotaLine(label, remaining, reset));
+    return result;
+  }, []);
+
+  const visibleLines = lines.length <= 3 ? lines : [...lines.slice(0, 3), `+${lines.length - 3} more`];
+  return {
+    lines: visibleLines,
+    remainingPercent: remainingPercents.length > 0 ? Math.min(...remainingPercents) : undefined,
+  };
+};
+
+const matchesCheckStatusFilter = (status: string | undefined, filter: string): boolean => {
+  if (filter === DEFAULT_ACCOUNT_POOL_CHECK_STATUS_FILTER) return true;
+  if (filter === 'unchecked') return !status;
+  return status === filter;
+};
+
+const matchesQuotaFilter = (
+  result: { quotaLines?: string[]; quotaRemainingPercent?: number } | undefined,
+  filter: string
+): boolean => {
+  if (filter === DEFAULT_ACCOUNT_POOL_QUOTA_FILTER) return true;
+  const hasQuota = Boolean(result?.quotaLines?.length);
+  if (filter === 'with_quota') return hasQuota;
+  if (filter === 'without_quota') return !hasQuota;
+  if (filter === 'low_quota') {
+    return typeof result?.quotaRemainingPercent === 'number'
+      ? result.quotaRemainingPercent <= LOW_ACCOUNT_POOL_QUOTA_PERCENT
+      : false;
+  }
+  return true;
+};
+
 const buildDownloadFileName = () => {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   return `account-pool-${stamp}.zip`;
@@ -350,6 +460,8 @@ export function AccountPoolPage() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [planFilter, setPlanFilter] = useState(DEFAULT_ACCOUNT_POOL_PLAN_FILTER);
+  const [checkStatusFilter, setCheckStatusFilter] = useState(DEFAULT_ACCOUNT_POOL_CHECK_STATUS_FILTER);
+  const [quotaFilter, setQuotaFilter] = useState(DEFAULT_ACCOUNT_POOL_QUOTA_FILTER);
   const [sortMode, setSortMode] = useState(DEFAULT_ACCOUNT_POOL_SORT_MODE);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_ACCOUNT_POOL_PAGE_SIZE);
@@ -437,12 +549,36 @@ export function AccountPoolPage() {
     [t]
   );
 
+  const checkStatusOptions = useMemo(
+    () => [
+      { value: 'all', label: t('account_pool.check_status_all', { defaultValue: '全部状态' }) },
+      { value: 'success', label: t('account_pool.check_status_success', { defaultValue: '通过' }) },
+      { value: 'error', label: t('account_pool.check_status_error', { defaultValue: '失败' }) },
+      { value: 'unsupported', label: t('account_pool.check_status_unsupported', { defaultValue: '不支持' }) },
+      { value: 'unchecked', label: t('account_pool.check_status_unchecked', { defaultValue: '未检测' }) },
+    ],
+    [t]
+  );
+
+  const quotaOptions = useMemo(
+    () => [
+      { value: 'all', label: t('account_pool.quota_all', { defaultValue: '全部额度' }) },
+      { value: 'with_quota', label: t('account_pool.quota_with', { defaultValue: '有额度' }) },
+      { value: 'low_quota', label: t('account_pool.quota_low', { defaultValue: '低额度' }) },
+      { value: 'without_quota', label: t('account_pool.quota_without', { defaultValue: '无额度' }) },
+    ],
+    [t]
+  );
+
   const filteredFiles = useMemo(() => {
     const term = search.trim().toLowerCase();
     return files
       .filter((file) => {
+        const checkResult = checkResults[file.name];
         if (typeFilter !== 'all' && getFileType(file) !== typeFilter) return false;
-        if (!matchesPlanFilter(file, fileContentCache, checkResults[file.name]?.plan, planFilter)) return false;
+        if (!matchesPlanFilter(file, fileContentCache, checkResult?.plan, planFilter)) return false;
+        if (!matchesCheckStatusFilter(checkResult?.status, checkStatusFilter)) return false;
+        if (!matchesQuotaFilter(checkResult, quotaFilter)) return false;
         if (!term) return true;
         return [file.name, getFileType(file), file.statusMessage, file.status]
           .some((value) => String(value ?? '').toLowerCase().includes(term));
@@ -470,7 +606,18 @@ export function AccountPoolPage() {
         if (rankDiff !== 0) return rankDiff;
         return left.name.localeCompare(right.name);
       });
-  }, [checkResults, fileContentCache, files, planFilter, savedAtByName, search, sortMode, typeFilter]);
+  }, [
+    checkResults,
+    checkStatusFilter,
+    fileContentCache,
+    files,
+    planFilter,
+    quotaFilter,
+    savedAtByName,
+    search,
+    sortMode,
+    typeFilter,
+  ]);
 
   const selectedSet = useMemo(() => new Set(selectedNames), [selectedNames]);
   const totalPages = Math.max(1, Math.ceil(filteredFiles.length / pageSize));
@@ -497,7 +644,7 @@ export function AccountPoolPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [planFilter, search, sortMode, typeFilter]);
+  }, [checkStatusFilter, planFilter, quotaFilter, search, sortMode, typeFilter]);
 
   const commitPageSizeInput = (rawValue: string) => {
     const trimmed = rawValue.trim();
@@ -704,16 +851,21 @@ export function AccountPoolPage() {
           setCheckResult(runId, file.name, {
             status: 'unsupported',
             message: t('account_pool.check_unsupported'),
+            checkedAt: Date.now(),
           });
           continue;
         }
 
         try {
           const quota = await config.fetchQuota(file, t);
+          const quotaSummary = getQuotaSummary(quota, t);
           setCheckResult(runId, file.name, {
             status: 'success',
             message: t('account_pool.check_success'),
             plan: getDetectedPlan(quota),
+            quotaLines: quotaSummary.lines,
+            quotaRemainingPercent: quotaSummary.remainingPercent,
+            checkedAt: Date.now(),
           });
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : t('common.unknown_error');
@@ -721,6 +873,7 @@ export function AccountPoolPage() {
           setCheckResult(runId, file.name, {
             status: 'error',
             message: status ? `${status}: ${message}` : message,
+            checkedAt: Date.now(),
           });
         }
       }
@@ -842,6 +995,22 @@ export function AccountPoolPage() {
                 ariaLabel={t('account_pool.plan_filter')}
               />
               <Select
+                className={styles.statusSelect}
+                fullWidth={false}
+                value={checkStatusFilter}
+                options={checkStatusOptions}
+                onChange={setCheckStatusFilter}
+                ariaLabel={t('account_pool.check_status_filter', { defaultValue: '检测状态' })}
+              />
+              <Select
+                className={styles.quotaSelect}
+                fullWidth={false}
+                value={quotaFilter}
+                options={quotaOptions}
+                onChange={setQuotaFilter}
+                ariaLabel={t('account_pool.quota_filter', { defaultValue: '额度状态' })}
+              />
+              <Select
                 className={styles.sortSelect}
                 fullWidth={false}
                 value={sortMode}
@@ -934,6 +1103,9 @@ export function AccountPoolPage() {
               const statusMessage = String(file.statusMessage || file['status_message'] || '');
               const checkResult = checkResults[file.name];
               const planLabel = getPlanLabel(checkResult?.plan);
+              const checkedAtLabel = checkResult?.checkedAt
+                ? formatUnixTimestamp(Math.round(checkResult.checkedAt / 1000))
+                : '';
               return (
                 <div
                   key={file.name}
@@ -968,9 +1140,16 @@ export function AccountPoolPage() {
                     >
                       {checkResult.status === 'loading'
                         ? t('account_pool.checking')
-                        : [checkResult.message, planLabel ? `Plan: ${planLabel}` : '']
+                        : [checkResult.message, planLabel ? `Plan: ${planLabel}` : '', checkedAtLabel]
                             .filter(Boolean)
                             .join(' / ')}
+                      {checkResult.quotaLines && checkResult.quotaLines.length > 0 && (
+                        <div className={styles.quotaLines}>
+                          {checkResult.quotaLines.map((line) => (
+                            <div key={line}>{line}</div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   {statusMessage && <div className={styles.statusLine}>{statusMessage}</div>}

@@ -6,6 +6,9 @@ export type AccountCheckResult = {
   status: AccountCheckStatus;
   message?: string;
   plan?: string;
+  quotaLines?: string[];
+  quotaRemainingPercent?: number;
+  checkedAt?: number;
 };
 
 type AccountCheckRecordRef = {
@@ -76,6 +79,12 @@ const readPersistedResults = (): Pick<AccountPoolCheckState, 'results' | 'result
           status,
           message: typeof value.message === 'string' ? value.message : undefined,
           plan: typeof value.plan === 'string' ? value.plan : undefined,
+          quotaLines: Array.isArray(value.quotaLines)
+            ? value.quotaLines.filter((line): line is string => typeof line === 'string')
+            : undefined,
+          quotaRemainingPercent:
+            typeof value.quotaRemainingPercent === 'number' ? value.quotaRemainingPercent : undefined,
+          checkedAt: typeof value.checkedAt === 'number' ? value.checkedAt : undefined,
         };
       });
     }

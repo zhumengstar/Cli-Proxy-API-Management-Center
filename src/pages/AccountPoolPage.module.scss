@@ -70,7 +70,7 @@
 
 .filterControls {
   display: grid;
-  grid-template-columns: minmax(260px, 360px) 128px 112px 152px;
+  grid-template-columns: minmax(240px, 340px) 128px 112px 112px 112px 152px;
   align-items: center;
   gap: $spacing-sm;
   min-width: 0;
@@ -104,6 +104,11 @@
 
 .sortSelect {
   width: 152px;
+}
+
+.statusSelect,
+.quotaSelect {
+  width: 112px;
 }
 
 .stats {
@@ -171,6 +176,8 @@
 
   .typeSelect,
   .planSelect,
+  .statusSelect,
+  .quotaSelect,
   .sortSelect {
     width: 100%;
   }
@@ -285,6 +292,13 @@
   line-height: 1.4;
   border-top: 1px dashed var(--border-color);
   padding-top: $spacing-sm;
+}
+
+.quotaLines {
+  display: grid;
+  gap: 3px;
+  margin-top: 6px;
+  color: var(--text-secondary);
 }
 
 .checkProgress {
