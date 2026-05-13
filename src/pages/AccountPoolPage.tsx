@@ -779,76 +779,80 @@ export function AccountPoolPage() {
       <Card>
         <div className={styles.toolbar}>
           <div className={styles.filters}>
-            <Input
-              className={styles.searchInput}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={t('account_pool.search_placeholder')}
-            />
-            <Select
-              className={styles.typeSelect}
-              fullWidth={false}
-              value={typeFilter}
-              options={typeOptions}
-              onChange={setTypeFilter}
-              ariaLabel={t('account_pool.type_filter')}
-            />
-            <Select
-              className={styles.planSelect}
-              fullWidth={false}
-              value={planFilter}
-              options={planOptions}
-              onChange={setPlanFilter}
-              ariaLabel={t('account_pool.plan_filter')}
-            />
-            <Select
-              className={styles.sortSelect}
-              fullWidth={false}
-              value={sortMode}
-              options={sortOptions}
-              onChange={setSortMode}
-              ariaLabel={t('account_pool.sort_filter')}
-            />
-            <span className={styles.stats}>
-              {t('account_pool.stats', { visible: filteredFiles.length, total: files.length })}
-            </span>
-            <label className={styles.pageSizeControl}>
-              <span>{t('auth_files.page_size_label')}</span>
-              <input
-                className={styles.pageSizeInput}
-                type="number"
-                min={MIN_ACCOUNT_POOL_PAGE_SIZE}
-                max={MAX_ACCOUNT_POOL_PAGE_SIZE}
-                step={1}
-                value={pageSizeInput}
-                onChange={handlePageSizeChange}
-                onBlur={(event) => commitPageSizeInput(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.currentTarget.blur();
-                  }
-                }}
+            <div className={styles.filterControls}>
+              <Input
+                className={styles.searchInput}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t('account_pool.search_placeholder')}
               />
-            </label>
-            <label className={styles.pageSizeControl}>
-              <span>{t('account_pool.check_concurrency')}</span>
-              <input
-                className={styles.checkConcurrencyInput}
-                type="number"
-                min={MIN_ACCOUNT_POOL_CHECK_CONCURRENCY}
-                max={MAX_ACCOUNT_POOL_CHECK_CONCURRENCY}
-                step={1}
-                value={checkConcurrencyInput}
-                disabled={checking}
-                onChange={handleCheckConcurrencyChange}
-                onBlur={(event) => commitCheckConcurrencyInput(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.currentTarget.blur();
-                  }
-                }}
+              <Select
+                className={styles.typeSelect}
+                fullWidth={false}
+                value={typeFilter}
+                options={typeOptions}
+                onChange={setTypeFilter}
+                ariaLabel={t('account_pool.type_filter')}
               />
-            </label>
+              <Select
+                className={styles.planSelect}
+                fullWidth={false}
+                value={planFilter}
+                options={planOptions}
+                onChange={setPlanFilter}
+                ariaLabel={t('account_pool.plan_filter')}
+              />
+              <Select
+                className={styles.sortSelect}
+                fullWidth={false}
+                value={sortMode}
+                options={sortOptions}
+                onChange={setSortMode}
+                ariaLabel={t('account_pool.sort_filter')}
+              />
+            </div>
+            <div className={styles.toolbarMeta}>
+              <span className={styles.stats}>
+                {t('account_pool.stats', { visible: filteredFiles.length, total: files.length })}
+              </span>
+              <label className={styles.pageSizeControl}>
+                <span>{t('auth_files.page_size_label')}</span>
+                <input
+                  className={styles.pageSizeInput}
+                  type="number"
+                  min={MIN_ACCOUNT_POOL_PAGE_SIZE}
+                  max={MAX_ACCOUNT_POOL_PAGE_SIZE}
+                  step={1}
+                  value={pageSizeInput}
+                  onChange={handlePageSizeChange}
+                  onBlur={(event) => commitPageSizeInput(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.currentTarget.blur();
+                    }
+                  }}
+                />
+              </label>
+              <label className={styles.pageSizeControl}>
+                <span>{t('account_pool.check_concurrency')}</span>
+                <input
+                  className={styles.checkConcurrencyInput}
+                  type="number"
+                  min={MIN_ACCOUNT_POOL_CHECK_CONCURRENCY}
+                  max={MAX_ACCOUNT_POOL_CHECK_CONCURRENCY}
+                  step={1}
+                  value={checkConcurrencyInput}
+                  disabled={checking}
+                  onChange={handleCheckConcurrencyChange}
+                  onBlur={(event) => commitCheckConcurrencyInput(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.currentTarget.blur();
+                    }
+                  }}
+                />
+              </label>
+            </div>
           </div>
           <div className={styles.selectionActions}>
             <SelectionCheckbox

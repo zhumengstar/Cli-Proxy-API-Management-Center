@@ -51,22 +51,42 @@
 }
 
 .toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-start;
   justify-content: space-between;
+  column-gap: $spacing-lg;
+  row-gap: $spacing-sm;
   margin-bottom: $spacing-md;
 }
 
 .filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  min-width: 0;
+}
+
+.filterControls {
   display: grid;
-  grid-template-columns: minmax(220px, 360px) 116px 96px 150px auto auto;
+  grid-template-columns: minmax(260px, 360px) 128px 112px 152px;
   align-items: center;
   gap: $spacing-sm;
   min-width: 0;
-  flex: 1;
+}
+
+.toolbarMeta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+  min-width: max-content;
 
   @include mobile {
-    grid-template-columns: 1fr 1fr;
     width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }
 
@@ -75,15 +95,15 @@
 }
 
 .typeSelect {
-  width: 116px;
+  width: 128px;
 }
 
 .planSelect {
-  width: 96px;
+  width: 112px;
 }
 
 .sortSelect {
-  width: 150px;
+  width: 152px;
 }
 
 .stats {
@@ -123,6 +143,37 @@
 
 .checkConcurrencyInput {
   width: 56px;
+}
+
+@media (max-width: 1280px) {
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .filters {
+    flex-wrap: wrap;
+  }
+
+  .toolbarMeta {
+    justify-content: flex-start;
+  }
+}
+
+@include mobile {
+  .filterControls {
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .searchInput {
+    grid-column: 1 / -1;
+  }
+
+  .typeSelect,
+  .planSelect,
+  .sortSelect {
+    width: 100%;
+  }
 }
 
 .poolGrid {
