@@ -1236,6 +1236,8 @@
     "check_unsupported": "Этот тип аккаунта пока не поддерживает проверку",
     "check_done": "Проверка завершена: успешно {{success}}, ошибок {{failed}}, не поддерживается {{unsupported}}",
     "download_selected": "Скачать выбранные ({{count}})",
+    "download_archive": "Скачать серверный ZIP пула",
+    "download_archive_success": "Серверный ZIP пула скачан",
     "download_success": "Скачано JSON аккаунтов в ZIP: {{count}}",
     "download_failed": "Не удалось скачать пул аккаунтов: {{message}}",
     "search_placeholder": "Поиск по имени файла, типу или статусу",

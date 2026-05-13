@@ -1239,6 +1239,8 @@
     "check_unsupported": "该账号类型暂不支持检测",
     "check_done": "检测完成：通过 {{success}}，失败 {{failed}}，不支持 {{unsupported}}",
     "download_selected": "下载选中 ({{count}})",
+    "download_archive": "下载后台账号池 ZIP",
+    "download_archive_success": "已下载后台账号池 ZIP",
     "download_success": "已打包下载 {{count}} 个账号 JSON",
     "download_failed": "账号池下载失败：{{message}}",
     "search_placeholder": "搜索文件名、类型或状态",

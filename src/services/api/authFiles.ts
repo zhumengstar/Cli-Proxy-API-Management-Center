@@ -451,6 +451,13 @@ export const authFilesApi = {
     return blob.text();
   },
 
+  downloadAccountPoolArchive: async (): Promise<Blob> => {
+    const response = await apiClient.getRaw('/account-pool/download', {
+      responseType: 'blob'
+    });
+    return response.data as Blob;
+  },
+
   async downloadJsonObject(name: string): Promise<Record<string, unknown>> {
     const rawText = await authFilesApi.downloadText(name);
     return parseAuthFileJsonObject(rawText);

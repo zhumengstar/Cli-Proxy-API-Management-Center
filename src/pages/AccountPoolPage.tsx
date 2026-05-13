@@ -173,6 +173,7 @@ export function AccountPoolPage() {
   const [checkResults, setCheckResults] = useState<Record<string, AccountCheckResult>>({});
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingArchive, setDownloadingArchive] = useState(false);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -381,6 +382,20 @@ export function AccountPoolPage() {
     }
   };
 
+  const handleDownloadServerArchive = async () => {
+    setDownloadingArchive(true);
+    try {
+      const blob = await authFilesApi.downloadAccountPoolArchive();
+      downloadBlob({ filename: buildDownloadFileName(), blob });
+      showNotification(t('account_pool.download_archive_success'), 'success');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('common.unknown_error');
+      showNotification(t('account_pool.download_failed', { message }), 'error');
+    } finally {
+      setDownloadingArchive(false);
+    }
+  };
+
   const detectAccounts = async (targets: AuthFileItem[]) => {
     if (targets.length === 0 || checking) return;
     setChecking(true);
@@ -488,6 +503,14 @@ export function AccountPoolPage() {
             disabled={selectedFiles.length === 0 || downloading}
           >
             {t('account_pool.download_selected', { count: selectedFiles.length })}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => void handleDownloadServerArchive()}
+            loading={downloadingArchive}
+            disabled={downloadingArchive}
+          >
+            {t('account_pool.download_archive')}
           </Button>
         </div>
       </div>
