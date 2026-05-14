@@ -973,6 +973,9 @@ export function AccountPoolPage() {
   const pageItems = filteredFiles.slice(pageStart, pageStart + pageSize);
   const visibleSelectedCount = pageItems.filter((file) => selectedSet.has(file.name)).length;
   const allVisibleSelected = pageItems.length > 0 && visibleSelectedCount === pageItems.length;
+  const filteredSelectedCount = filteredFiles.filter((file) => selectedSet.has(file.name)).length;
+  const allFilteredSelected =
+    filteredFiles.length > 0 && filteredSelectedCount === filteredFiles.length;
 
   const selectedFiles = useMemo(
     () => files.filter((file) => selectedSet.has(file.name)),
@@ -1114,6 +1117,20 @@ export function AccountPoolPage() {
     setSelectedNames((current) => {
       const next = new Set(current);
       pageItems.forEach((file) => {
+        if (checked) {
+          next.add(file.name);
+        } else {
+          next.delete(file.name);
+        }
+      });
+      return Array.from(next);
+    });
+  };
+
+  const toggleFiltered = (checked: boolean) => {
+    setSelectedNames((current) => {
+      const next = new Set(current);
+      filteredFiles.forEach((file) => {
         if (checked) {
           next.add(file.name);
         } else {
@@ -1355,8 +1372,20 @@ export function AccountPoolPage() {
           <Button
             variant="secondary"
             size="sm"
+            onClick={() => void detectAccounts(filteredFiles)}
+            loading={checking && selectedFiles.length === 0 && filteredFiles.length < files.length}
+            disabled={checking || filteredFiles.length === 0}
+          >
+            {t('account_pool.check_filtered', {
+              count: filteredFiles.length,
+              defaultValue: `检测筛选 (${filteredFiles.length})`,
+            })}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => void detectAccounts(files)}
-            loading={checking && selectedFiles.length === 0}
+            loading={checking && selectedFiles.length === 0 && filteredFiles.length === files.length}
             disabled={checking || files.length === 0}
           >
             {t('account_pool.check_all')}
@@ -1492,6 +1521,14 @@ export function AccountPoolPage() {
               onChange={toggleVisible}
               disabled={pageItems.length === 0}
               label={t('account_pool.select_visible')}
+            />
+            <SelectionCheckbox
+              checked={allFilteredSelected}
+              onChange={toggleFiltered}
+              disabled={filteredFiles.length === 0}
+              label={t('account_pool.select_filtered', {
+                defaultValue: '选择筛选结果',
+              })}
             />
             <Button variant="ghost" size="sm" onClick={() => setSelectedNames([])}>
               {t('account_pool.clear_selection')}
