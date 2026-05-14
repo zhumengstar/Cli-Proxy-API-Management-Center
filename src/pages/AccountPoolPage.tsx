@@ -24,6 +24,7 @@ import { createZipBlob } from '@/utils/zip';
 import {
   ACCOUNT_POOL_UPDATED_EVENT,
   buildAccountPoolFileContentCache,
+  deleteAccountPoolRecordsByName,
   readAccountPoolRecords,
   syncAccountPoolFromAuthFiles,
   uniqueAccountPoolRecords,
@@ -695,6 +696,7 @@ export function AccountPoolPage() {
   const [downloading, setDownloading] = useState(false);
   const [downloadingArchive, setDownloadingArchive] = useState(false);
   const [overwritingPassed, setOverwritingPassed] = useState(false);
+  const [deletingPoolEntries, setDeletingPoolEntries] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -1194,6 +1196,52 @@ export function AccountPoolPage() {
     }
   };
 
+  const deletePoolEntries = async (targets: AuthFileItem[]) => {
+    if (targets.length === 0 || deletingPoolEntries) return;
+    const names = targets.map((file) => file.name);
+    setDeletingPoolEntries(true);
+    let backendDeleteFailed = '';
+    try {
+      try {
+        await authFilesApi.deleteAccountPoolEntries(names);
+      } catch (err: unknown) {
+        backendDeleteFailed = err instanceof Error ? err.message : t('common.unknown_error');
+      }
+
+      const nextRecords = deleteAccountPoolRecordsByName(names);
+      applyRecords(nextRecords);
+      showNotification(
+        backendDeleteFailed
+          ? t('account_pool.delete_local_success_backend_failed', {
+              count: names.length,
+              message: backendDeleteFailed,
+              defaultValue: `已从账号池删除 ${names.length} 个，后台 ZIP 删除失败：${backendDeleteFailed}`,
+            })
+          : t('account_pool.delete_success', {
+              count: names.length,
+              defaultValue: `已从账号池删除 ${names.length} 个`,
+            }),
+        backendDeleteFailed ? 'warning' : 'success'
+      );
+    } finally {
+      setDeletingPoolEntries(false);
+    }
+  };
+
+  const confirmDeletePoolEntries = (targets: AuthFileItem[]) => {
+    if (targets.length === 0) return;
+    showConfirmation({
+      title: t('account_pool.delete_title', { defaultValue: '删除账号池账号' }),
+      message: t('account_pool.delete_confirm', {
+        count: targets.length,
+        defaultValue: `确认从账号池删除 ${targets.length} 个账号？认证文件不会被删除。`,
+      }),
+      confirmText: t('common.delete'),
+      variant: 'danger',
+      onConfirm: () => void deletePoolEntries(targets),
+    });
+  };
+
   const overwritePassedAuthFiles = async () => {
     if (passedFiles.length === 0 || overwritingPassed) return;
     setOverwritingPassed(true);
@@ -1399,6 +1447,18 @@ export function AccountPoolPage() {
             {t('account_pool.download_selected', { count: selectedFiles.length })}
           </Button>
           <Button
+            variant="danger"
+            size="sm"
+            onClick={() => confirmDeletePoolEntries(selectedFiles)}
+            loading={deletingPoolEntries}
+            disabled={deletingPoolEntries || selectedFiles.length === 0}
+          >
+            {t('account_pool.delete_selected', {
+              count: selectedFiles.length,
+              defaultValue: `删除选中 (${selectedFiles.length})`,
+            })}
+          </Button>
+          <Button
             variant="secondary"
             size="sm"
             onClick={() => void handleDownloadServerArchive()}
@@ -1533,6 +1593,17 @@ export function AccountPoolPage() {
             <Button variant="ghost" size="sm" onClick={() => setSelectedNames([])}>
               {t('account_pool.clear_selection')}
             </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => confirmDeletePoolEntries(filteredFiles)}
+              disabled={deletingPoolEntries || filteredFiles.length === 0}
+            >
+              {t('account_pool.delete_filtered', {
+                count: filteredFiles.length,
+                defaultValue: `删除筛选结果 (${filteredFiles.length})`,
+              })}
+            </Button>
           </div>
         </div>
 
@@ -1625,6 +1696,16 @@ export function AccountPoolPage() {
                             {formatUsageMetric(usageSummary?.failures)}
                           </strong>
                         </div>
+                      </div>
+                      <div className={styles.cardActions}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => confirmDeletePoolEntries([file])}
+                          disabled={deletingPoolEntries}
+                        >
+                          {t('common.delete')}
+                        </Button>
                       </div>
                     </div>
                   </div>

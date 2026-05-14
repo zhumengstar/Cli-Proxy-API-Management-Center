@@ -543,6 +543,17 @@ export const authFilesApi = {
     return blob.text();
   },
 
+  deleteAccountPoolEntries: async (names: string[]): Promise<AuthFileBatchDeleteResult> => {
+    const requestedNames = normalizeRequestedAuthFileNames(names);
+    if (requestedNames.length === 0) {
+      return { status: 'ok', deleted: 0, files: [], failed: [] };
+    }
+    const payload = await apiClient.delete<AuthFileBatchDeleteResponse>('/account-pool', {
+      data: { names: requestedNames },
+    });
+    return normalizeBatchDeleteResponse(payload, requestedNames);
+  },
+
   getAccountPoolUsageRecords: async (limit = 80): Promise<AccountPoolUsageResponse> => {
     const response = await apiClient.get<{
       records?: AccountPoolUsageRecord[];

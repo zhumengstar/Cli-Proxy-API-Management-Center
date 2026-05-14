@@ -11,6 +11,7 @@ export type AccountPoolRecord = {
 
 export const ACCOUNT_POOL_STORAGE_KEY = 'cli-proxy-account-pool';
 export const ACCOUNT_POOL_UPDATED_EVENT = 'cli-proxy-account-pool-updated';
+const ACCOUNT_POOL_DELETED_HASHES_STORAGE_KEY = 'cli-proxy-account-pool-deleted-hashes';
 const ACCOUNT_POOL_SYNC_DEBOUNCE_MS = 400;
 const ACCOUNT_POOL_SYNC_CONCURRENCY = 5;
 
@@ -90,6 +91,24 @@ export const writeAccountPoolRecords = (records: AccountPoolRecord[]) => {
   window.localStorage.setItem(ACCOUNT_POOL_STORAGE_KEY, JSON.stringify(compactRecords));
 };
 
+const readDeletedAccountPoolHashes = (): Set<string> => {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(ACCOUNT_POOL_DELETED_HASHES_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())));
+  } catch {
+    return new Set();
+  }
+};
+
+const writeDeletedAccountPoolHashes = (hashes: Set<string>) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(ACCOUNT_POOL_DELETED_HASHES_STORAGE_KEY, JSON.stringify(Array.from(hashes)));
+};
+
 export const uniqueAccountPoolRecords = (records: AccountPoolRecord[]): AccountPoolRecord[] => {
   const byHash = new Map<string, AccountPoolRecord>();
   records.forEach((record) => {
@@ -120,6 +139,25 @@ const emitAccountPoolUpdated = (records: AccountPoolRecord[]) => {
       detail: records,
     })
   );
+};
+
+export const deleteAccountPoolRecordsByName = (names: string[]): AccountPoolRecord[] => {
+  const nameSet = new Set(names.map((name) => name.trim()).filter(Boolean));
+  if (nameSet.size === 0) return uniqueAccountPoolRecords(readAccountPoolRecords());
+
+  const deletedHashes = readDeletedAccountPoolHashes();
+  const nextRecords = uniqueAccountPoolRecords(readAccountPoolRecords()).filter((record) => {
+    if (!nameSet.has(record.file.name)) return true;
+    if (record.hash) {
+      deletedHashes.add(record.hash);
+    }
+    return false;
+  });
+
+  writeDeletedAccountPoolHashes(deletedHashes);
+  writeAccountPoolRecords(nextRecords);
+  emitAccountPoolUpdated(nextRecords);
+  return nextRecords;
 };
 
 const runWithConcurrency = async <T,>(
@@ -167,7 +205,10 @@ export const syncAccountPoolFromAuthFiles = async (): Promise<AccountPoolRecord[
   if (syncInFlight) return syncInFlight;
 
   syncInFlight = (async () => {
-    const storedRecords = uniqueAccountPoolRecords(readAccountPoolRecords());
+    const deletedHashes = readDeletedAccountPoolHashes();
+    const storedRecords = uniqueAccountPoolRecords(readAccountPoolRecords()).filter(
+      (record) => !deletedHashes.has(record.hash)
+    );
     const response = await apiClient.get<unknown>('/auth-files');
     const importedFiles = normalizeAuthFilesPayload(response).filter(
       (file) => !isRuntimeOnlyAuthPoolFile(file)
@@ -198,6 +239,10 @@ export const syncAccountPoolFromAuthFiles = async (): Promise<AccountPoolRecord[
           );
           const rawText = await (responseText.data as Blob).text();
           const hash = await hashText(normalizeJsonForDedupe(rawText));
+          if (deletedHashes.has(hash)) {
+            recordsByName.delete(file.name);
+            return;
+          }
           recordsByName.set(file.name, {
             file,
             hash,
