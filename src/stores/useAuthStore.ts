@@ -1,8 +1,3 @@
-/**
- * 认证状态管理
- * 从原项目 src/modules/login.js 和 src/core/connection.js 迁移
- */
-
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { AuthState, LoginCredentials, ConnectionStatus } from '@/types';
@@ -12,12 +7,12 @@ import { apiClient } from '@/services/api/client';
 import { useConfigStore } from './useConfigStore';
 import { useModelsStore } from './useModelsStore';
 import { detectApiBaseFromLocation, normalizeApiBase } from '@/utils/connection';
+import { deobfuscateData, obfuscateData } from '@/utils/encryption';
 
 interface AuthStoreState extends AuthState {
   connectionStatus: ConnectionStatus;
   connectionError: string | null;
 
-  // 操作
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => void;
   checkAuth: () => Promise<boolean>;
@@ -26,12 +21,44 @@ interface AuthStoreState extends AuthState {
   updateConnectionStatus: (status: ConnectionStatus, error?: string | null) => void;
 }
 
+type AuthSessionSnapshot = {
+  apiBase?: string;
+  managementKey?: string;
+  rememberPassword?: boolean;
+};
+
 let restoreSessionPromise: Promise<boolean> | null = null;
+const AUTH_SESSION_STORAGE_KEY = `${STORAGE_KEY_AUTH}:session`;
+
+const readSessionSnapshot = (): AuthSessionSnapshot | null => {
+  if (typeof window === 'undefined') return null;
+
+  const raw = window.sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(deobfuscateData(raw)) as AuthSessionSnapshot;
+  } catch {
+    window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+    return null;
+  }
+};
+
+const writeSessionSnapshot = (snapshot: AuthSessionSnapshot): void => {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, obfuscateData(JSON.stringify(snapshot)));
+  window.sessionStorage.setItem('isLoggedIn', 'true');
+};
+
+const clearSessionSnapshot = (): void => {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  window.sessionStorage.removeItem('isLoggedIn');
+};
 
 export const useAuthStore = create<AuthStoreState>()(
   persist(
     (set, get) => ({
-      // 初始状态
       isAuthenticated: false,
       apiBase: '',
       managementKey: '',
@@ -41,23 +68,32 @@ export const useAuthStore = create<AuthStoreState>()(
       connectionStatus: 'disconnected',
       connectionError: null,
 
-      // 恢复会话并自动登录
       restoreSession: () => {
         if (restoreSessionPromise) return restoreSessionPromise;
 
         restoreSessionPromise = (async () => {
           obfuscatedStorage.migratePlaintextKeys(['apiBase', 'apiUrl', 'managementKey']);
 
-          const wasLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
+          const sessionSnapshot = readSessionSnapshot();
+          const wasLoggedIn =
+            localStorage.getItem('isLoggedIn') === 'true' ||
+            sessionStorage.getItem('isLoggedIn') === 'true' ||
+            Boolean(sessionSnapshot?.managementKey);
           const legacyBase =
             obfuscatedStorage.getItem<string>('apiBase') ||
             obfuscatedStorage.getItem<string>('apiUrl', { encrypt: true });
           const legacyKey = obfuscatedStorage.getItem<string>('managementKey');
 
           const { apiBase, managementKey, rememberPassword } = get();
-          const resolvedBase = normalizeApiBase(apiBase || legacyBase || detectApiBaseFromLocation());
-          const resolvedKey = managementKey || legacyKey || '';
-          const resolvedRememberPassword = rememberPassword || Boolean(managementKey) || Boolean(legacyKey);
+          const resolvedBase = normalizeApiBase(
+            apiBase || sessionSnapshot?.apiBase || legacyBase || detectApiBaseFromLocation()
+          );
+          const resolvedKey = managementKey || sessionSnapshot?.managementKey || legacyKey || '';
+          const resolvedRememberPassword =
+            rememberPassword ||
+            Boolean(managementKey) ||
+            Boolean(legacyKey) ||
+            Boolean(sessionSnapshot?.rememberPassword);
 
           set({
             apiBase: resolvedBase,
@@ -76,6 +112,7 @@ export const useAuthStore = create<AuthStoreState>()(
               return true;
             } catch (error) {
               console.warn('Auto login failed:', error);
+              clearSessionSnapshot();
               return false;
             }
           }
@@ -86,8 +123,7 @@ export const useAuthStore = create<AuthStoreState>()(
         return restoreSessionPromise;
       },
 
-      // 登录
-      login: async (credentials) => {
+      login: async (credentials: LoginCredentials) => {
         const apiBase = normalizeApiBase(credentials.apiBase);
         const managementKey = credentials.managementKey.trim();
         const rememberPassword = credentials.rememberPassword ?? get().rememberPassword ?? false;
@@ -96,16 +132,13 @@ export const useAuthStore = create<AuthStoreState>()(
           set({ connectionStatus: 'connecting' });
           useModelsStore.getState().clearCache();
 
-          // 配置 API 客户端
           apiClient.setConfig({
             apiBase,
             managementKey
           });
 
-          // 测试连接 - 获取配置
           await useConfigStore.getState().fetchConfig(undefined, true);
 
-          // 登录成功
           set({
             isAuthenticated: true,
             apiBase,
@@ -114,6 +147,7 @@ export const useAuthStore = create<AuthStoreState>()(
             connectionStatus: 'connected',
             connectionError: null
           });
+          writeSessionSnapshot({ apiBase, managementKey, rememberPassword });
           if (rememberPassword) {
             localStorage.setItem('isLoggedIn', 'true');
           } else {
@@ -134,7 +168,6 @@ export const useAuthStore = create<AuthStoreState>()(
         }
       },
 
-      // 登出
       logout: () => {
         restoreSessionPromise = null;
         useConfigStore.getState().clearCache();
@@ -149,9 +182,9 @@ export const useAuthStore = create<AuthStoreState>()(
           connectionError: null
         });
         localStorage.removeItem('isLoggedIn');
+        clearSessionSnapshot();
       },
 
-      // 检查认证状态
       checkAuth: async () => {
         const { managementKey, apiBase } = get();
 
@@ -160,10 +193,8 @@ export const useAuthStore = create<AuthStoreState>()(
         }
 
         try {
-          // 重新配置客户端
           apiClient.setConfig({ apiBase, managementKey });
 
-          // 验证连接
           await useConfigStore.getState().fetchConfig();
 
           set({
@@ -173,6 +204,7 @@ export const useAuthStore = create<AuthStoreState>()(
 
           return true;
         } catch {
+          clearSessionSnapshot();
           set({
             isAuthenticated: false,
             connectionStatus: 'error'
@@ -181,12 +213,10 @@ export const useAuthStore = create<AuthStoreState>()(
         }
       },
 
-      // 更新服务器版本
       updateServerVersion: (version, buildDate) => {
         set({ serverVersion: version || null, serverBuildDate: buildDate || null });
       },
 
-      // 更新连接状态
       updateConnectionStatus: (status, error = null) => {
         set({
           connectionStatus: status,
@@ -219,7 +249,6 @@ export const useAuthStore = create<AuthStoreState>()(
   )
 );
 
-// 监听全局未授权事件
 if (typeof window !== 'undefined') {
   window.addEventListener('unauthorized', () => {
     useAuthStore.getState().logout();

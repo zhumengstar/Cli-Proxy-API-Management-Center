@@ -9,21 +9,26 @@ export function ProtectedRoute({ children }: { children: ReactElement }) {
   const managementKey = useAuthStore((state) => state.managementKey);
   const apiBase = useAuthStore((state) => state.apiBase);
   const checkAuth = useAuthStore((state) => state.checkAuth);
-  const [checking, setChecking] = useState(false);
+  const restoreSession = useAuthStore((state) => state.restoreSession);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     const tryRestore = async () => {
-      if (!isAuthenticated && managementKey && apiBase) {
-        setChecking(true);
-        try {
-          await checkAuth();
-        } finally {
-          setChecking(false);
+      setChecking(true);
+      try {
+        if (!isAuthenticated) {
+          const restored = await restoreSession();
+          if (restored) return;
         }
+        if (!isAuthenticated && managementKey && apiBase) {
+          await checkAuth();
+        }
+      } finally {
+        setChecking(false);
       }
     };
     tryRestore();
-  }, [apiBase, isAuthenticated, managementKey, checkAuth]);
+  }, [apiBase, isAuthenticated, managementKey, checkAuth, restoreSession]);
 
   if (checking) {
     return (
