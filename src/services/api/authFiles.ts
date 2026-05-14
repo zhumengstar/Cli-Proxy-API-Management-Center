@@ -535,6 +535,14 @@ export const authFilesApi = {
     return response.data as Blob;
   },
 
+  downloadAccountPoolText: async (name: string): Promise<string> => {
+    const response = await apiClient.getRaw(`/account-pool/download-entry?name=${encodeURIComponent(name)}`, {
+      responseType: 'blob'
+    });
+    const blob = response.data as Blob;
+    return blob.text();
+  },
+
   getAccountPoolUsageRecords: async (limit = 80): Promise<AccountPoolUsageResponse> => {
     const response = await apiClient.get<{
       records?: AccountPoolUsageRecord[];

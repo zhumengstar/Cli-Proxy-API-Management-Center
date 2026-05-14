@@ -33,7 +33,6 @@ import styles from './AccountPoolPage.module.scss';
 
 const ACCOUNT_POOL_CHECK_CONCURRENCY_STORAGE_KEY = 'cli-proxy-account-pool-check-concurrency';
 const MIN_ACCOUNT_POOL_CHECK_CONCURRENCY = 1;
-const MAX_ACCOUNT_POOL_CHECK_CONCURRENCY = 20;
 const DEFAULT_ACCOUNT_POOL_CHECK_CONCURRENCY = 5;
 const MIN_ACCOUNT_POOL_PAGE_SIZE = 1;
 const MAX_ACCOUNT_POOL_PAGE_SIZE = 200;
@@ -611,10 +610,7 @@ const clampAccountPoolPageSize = (value: number): number =>
   Math.min(MAX_ACCOUNT_POOL_PAGE_SIZE, Math.max(MIN_ACCOUNT_POOL_PAGE_SIZE, Math.round(value)));
 
 const clampAccountPoolCheckConcurrency = (value: number): number =>
-  Math.min(
-    MAX_ACCOUNT_POOL_CHECK_CONCURRENCY,
-    Math.max(MIN_ACCOUNT_POOL_CHECK_CONCURRENCY, Math.round(value))
-  );
+  Math.max(MIN_ACCOUNT_POOL_CHECK_CONCURRENCY, Math.round(value));
 
 const readStoredCheckConcurrency = (): number => {
   if (typeof window === 'undefined') return DEFAULT_ACCOUNT_POOL_CHECK_CONCURRENCY;
@@ -1128,6 +1124,21 @@ export function AccountPoolPage() {
     });
   };
 
+  const readAccountPoolFileContent = async (name: string): Promise<string> => {
+    const cachedContent = fileContentCache[name];
+    if (cachedContent) return cachedContent;
+
+    try {
+      return await authFilesApi.downloadText(name);
+    } catch (authFileErr) {
+      try {
+        return await authFilesApi.downloadAccountPoolText(name);
+      } catch {
+        throw authFileErr;
+      }
+    }
+  };
+
   const handleDownloadSelected = async () => {
     if (selectedFiles.length === 0) return;
     setDownloading(true);
@@ -1135,7 +1146,7 @@ export function AccountPoolPage() {
       const zipFiles = await Promise.all(
         selectedFiles.map(async (file) => ({
           name: file.name,
-          text: fileContentCache[file.name] ?? await authFilesApi.downloadText(file.name),
+          text: await readAccountPoolFileContent(file.name),
         }))
       );
       const zipBlob = createZipBlob(zipFiles);
@@ -1172,7 +1183,7 @@ export function AccountPoolPage() {
     try {
       const uploadFiles = await Promise.all(
         passedFiles.map(async (file) => {
-          const content = fileContentCache[file.name] ?? await authFilesApi.downloadText(file.name);
+          const content = await readAccountPoolFileContent(file.name);
           return new File([content], file.name, { type: 'application/json' });
         })
       );
@@ -1461,7 +1472,6 @@ export function AccountPoolPage() {
                   className={styles.checkConcurrencyInput}
                   type="number"
                   min={MIN_ACCOUNT_POOL_CHECK_CONCURRENCY}
-                  max={MAX_ACCOUNT_POOL_CHECK_CONCURRENCY}
                   step={1}
                   value={checkConcurrencyInput}
                   disabled={checking}
