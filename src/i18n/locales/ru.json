@@ -117,6 +117,7 @@
     "quota_management": "Управление квотами",
     "config_management": "Панель конфигурации",
     "logs": "Просмотр логов",
+    "external_request_logs": "Логи внешних запросов",
     "system_info": "Информация системы",
     "account_pool": "Пул аккаунтов"
   },

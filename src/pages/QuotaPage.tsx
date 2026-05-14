@@ -23,7 +23,6 @@ export function QuotaPage() {
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
 
   const [files, setFiles] = useState<AuthFileItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const disableControls = connectionStatus !== 'connected';
@@ -38,7 +37,6 @@ export function QuotaPage() {
   }, [t]);
 
   const loadFiles = useCallback(async () => {
-    setLoading(true);
     setError('');
     try {
       const data = await authFilesApi.list();
@@ -46,8 +44,6 @@ export function QuotaPage() {
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : t('notification.refresh_failed');
       setError(errorMessage);
-    } finally {
-      setLoading(false);
     }
   }, [t]);
 
@@ -74,31 +70,26 @@ export function QuotaPage() {
       <QuotaSection
         config={CLAUDE_CONFIG}
         files={files}
-        loading={loading}
         disabled={disableControls}
       />
       <QuotaSection
         config={ANTIGRAVITY_CONFIG}
         files={files}
-        loading={loading}
         disabled={disableControls}
       />
       <QuotaSection
         config={CODEX_CONFIG}
         files={files}
-        loading={loading}
         disabled={disableControls}
       />
       <QuotaSection
         config={GEMINI_CLI_CONFIG}
         files={files}
-        loading={loading}
         disabled={disableControls}
       />
       <QuotaSection
         config={KIMI_CONFIG}
         files={files}
-        loading={loading}
         disabled={disableControls}
       />
     </div>

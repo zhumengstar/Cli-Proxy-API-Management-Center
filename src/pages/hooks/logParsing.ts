@@ -13,6 +13,8 @@ const LOG_REQUEST_ID_REGEX = /^([a-f0-9]{8}|--------)$/i;
 const LOG_TIME_OF_DAY_REGEX = /^\d{1,2}:\d{2}:\d{2}(?:\.\d{1,3})?$/;
 const GIN_TIMESTAMP_SEGMENT_REGEX =
   /^\[GIN\]\s+(\d{4})\/(\d{2})\/(\d{2})\s*-\s*(\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)\s*$/;
+const REQUEST_SUMMARY_FIELD_REGEX =
+  /\b(user|user_id|channel|model|type|matched_email|retry|first_byte_ms|tokens)=([^\s|]+)/g;
 
 const HTTP_STATUS_PATTERNS: RegExp[] = [
   /\|\s*([1-5]\d{2})\s*\|/,
@@ -138,6 +140,15 @@ export const parseLogLine = (raw: string): ParsedLogLine => {
   let method: HttpMethod | undefined;
   let path: string | undefined;
   let message = remaining;
+  let user: string | undefined;
+  let userId: string | undefined;
+  let channel: string | undefined;
+  let model: string | undefined;
+  let requestType: string | undefined;
+  let matchedEmail: string | undefined;
+  let retry: string | undefined;
+  let firstByteMs: string | undefined;
+  let tokens: string | undefined;
 
   if (remaining.includes('|')) {
     const segments = remaining
@@ -258,6 +269,56 @@ export const parseLogLine = (raw: string): ParsedLogLine => {
     }
   }
 
+  if (message) {
+    const consumed = new Set<string>();
+    for (const match of message.matchAll(REQUEST_SUMMARY_FIELD_REGEX)) {
+      const key = match[1];
+      const value = match[2];
+      switch (key) {
+        case 'user':
+          user = value;
+          break;
+        case 'user_id':
+          userId = value;
+          break;
+        case 'channel':
+          channel = value;
+          break;
+        case 'model':
+          model = value;
+          break;
+        case 'type':
+          requestType = value;
+          break;
+        case 'matched_email':
+          matchedEmail = value;
+          break;
+        case 'retry':
+          retry = value;
+          break;
+        case 'first_byte_ms':
+          firstByteMs = value;
+          break;
+        case 'tokens':
+          tokens = value;
+          break;
+        default:
+          break;
+      }
+      consumed.add(match[0]);
+    }
+    if (consumed.size > 0) {
+      let cleanedMessage = message;
+      for (const token of consumed) {
+        cleanedMessage = cleanedMessage.replace(token, ' ');
+      }
+      message = cleanedMessage.replace(/\s+/g, ' ').replace(/\s+\|/g, ' |').trim();
+      if (message === '|') {
+        message = '';
+      }
+    }
+  }
+
   return {
     raw,
     timestamp,
@@ -269,6 +330,15 @@ export const parseLogLine = (raw: string): ParsedLogLine => {
     ip,
     method,
     path,
+    user,
+    userId,
+    channel,
+    model,
+    requestType,
+    matchedEmail,
+    retry,
+    firstByteMs,
+    tokens,
     message,
   };
 };

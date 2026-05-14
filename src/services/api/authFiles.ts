@@ -66,6 +66,27 @@ export type AccountPoolUsageRecord = {
   output_tokens?: number;
   total_tokens?: number;
 };
+export type AccountPoolUsageSummary = {
+  key: string;
+  service_email?: string;
+  auth_id?: string;
+  auth_index?: string;
+  auth_type?: string;
+  provider?: string;
+  model?: string;
+  alias?: string;
+  requests: number;
+  successes?: number;
+  failures?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  last_used_at?: string;
+};
+export type AccountPoolUsageResponse = {
+  records: AccountPoolUsageRecord[];
+  summaries: AccountPoolUsageSummary[];
+};
 
 export const AUTH_FILE_INVALID_JSON_OBJECT_ERROR = 'AUTH_FILE_INVALID_JSON_OBJECT';
 
@@ -514,11 +535,17 @@ export const authFilesApi = {
     return response.data as Blob;
   },
 
-  getAccountPoolUsageRecords: async (limit = 80): Promise<AccountPoolUsageRecord[]> => {
-    const response = await apiClient.get<{ records?: AccountPoolUsageRecord[] }>(
+  getAccountPoolUsageRecords: async (limit = 80): Promise<AccountPoolUsageResponse> => {
+    const response = await apiClient.get<{
+      records?: AccountPoolUsageRecord[];
+      summaries?: AccountPoolUsageSummary[];
+    }>(
       `/account-pool/usage-records?limit=${encodeURIComponent(String(limit))}`
     );
-    return Array.isArray(response.records) ? response.records : [];
+    return {
+      records: Array.isArray(response.records) ? response.records : [],
+      summaries: Array.isArray(response.summaries) ? response.summaries : [],
+    };
   },
 
   clearAccountPoolUsageRecords: () => apiClient.delete('/account-pool/usage-records'),

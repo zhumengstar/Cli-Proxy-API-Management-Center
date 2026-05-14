@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { useAccountPoolCheckStore, useNotificationStore } from '@/stores';
-import { authFilesApi, type AccountPoolUsageRecord } from '@/services/api';
+import { authFilesApi, type AccountPoolUsageSummary } from '@/services/api';
 import {
   ANTIGRAVITY_CONFIG,
   CLAUDE_CONFIG,
@@ -343,11 +343,91 @@ const formatQuotaResetMeta = (
   value: string
 ): string => {
   if (!value || value === '-') return '';
-  if (value.includes('重置') || value.toLowerCase().includes('reset')) return value;
+  if (value.includes('閲嶇疆') || value.toLowerCase().includes('reset')) return value;
   return t('quota_management.reset_time_label', {
     time: value,
     defaultValue: `Reset time: ${value}`,
   });
+};
+
+const parseQuotaResetSortTime = (value: string): number | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const parseMonthDayTime = (input: string): number | null => {
+    const match = input.match(
+      /(\d{1,2})[/-](\d{1,2})(?:[T\s]+(\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?)?/
+    );
+    if (!match) return null;
+
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    const hour = Number(match[3] ?? '0');
+    const minute = Number(match[4] ?? '0');
+    const second = Number(match[5] ?? '0');
+    if (
+      !Number.isFinite(month) ||
+      !Number.isFinite(day) ||
+      !Number.isFinite(hour) ||
+      !Number.isFinite(minute) ||
+      !Number.isFinite(second)
+    ) {
+      return null;
+    }
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const candidate = new Date(currentYear, month - 1, day, hour, minute, second, 0);
+    if (
+      candidate.getMonth() !== month - 1 ||
+      candidate.getDate() !== day ||
+      candidate.getHours() !== hour ||
+      candidate.getMinutes() !== minute
+    ) {
+      return null;
+    }
+
+    if (candidate.getTime() + 24 * 60 * 60 * 1000 < now.getTime()) {
+      candidate.setFullYear(currentYear + 1);
+    }
+    return candidate.getTime();
+  };
+
+  const direct = parseDateValue(trimmed);
+  if (direct !== null) return direct;
+  const monthDayDirect = parseMonthDayTime(trimmed);
+  if (monthDayDirect !== null) return monthDayDirect;
+
+  const strippedLabel = trimmed
+    .replace(/^(重置时间|Reset time)[:：]?\s*/i, '')
+    .replace(/^(重置日期|Reset date)[:：]?\s*/i, '')
+    .trim();
+  const stripped = parseDateValue(strippedLabel);
+  if (stripped !== null) return stripped;
+  const monthDayStripped = parseMonthDayTime(strippedLabel);
+  if (monthDayStripped !== null) return monthDayStripped;
+
+  const segments = strippedLabel.split(/[|/]/);
+  const tail = (segments.length > 0 ? segments[segments.length - 1] : '').trim();
+  const tailParsed = parseDateValue(tail);
+  if (tailParsed !== null) return tailParsed;
+  return parseMonthDayTime(tail);
+};
+
+const getEarliestQuotaResetTime = (
+  result: { quotaLines?: string[]; quotaRemainingPercent?: number } | undefined
+): number | null => {
+  if (!result || !Array.isArray(result.quotaLines) || result.quotaLines.length === 0) {
+    return null;
+  }
+
+  const times = result.quotaLines
+    .map(parseQuotaDetail)
+    .map((detail) => parseQuotaResetSortTime(detail.reset))
+    .filter((value): value is number => value !== null);
+
+  if (times.length === 0) return null;
+  return Math.min(...times);
 };
 
 const getQuotaSummary = (
@@ -436,17 +516,95 @@ const buildDownloadFileName = () => {
   return `account-pool-${stamp}.zip`;
 };
 
-const formatUsageRecordTime = (value: string): string => {
-  const time = Date.parse(value);
-  if (!Number.isFinite(time)) return value || '-';
-  return new Date(time).toLocaleString(undefined, {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
+const usageMetricNumberFormatter = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 0,
+});
+
+const formatUsageMetric = (value: number | undefined): string => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return '0';
+  return usageMetricNumberFormatter.format(Math.round(value));
+};
+
+const parseJsonObject = (rawText: string | undefined): Record<string, unknown> | null => {
+  if (!rawText) return null;
+  try {
+    const parsed = JSON.parse(rawText) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const firstNonEmptyString = (...values: unknown[]): string => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return '';
+};
+
+const getAccountPoolEmail = (
+  file: AuthFileItem,
+  fileContentCache: Record<string, string>
+): string => {
+  const metadata = isRecord(file.metadata) ? file.metadata : null;
+  const attributes = isRecord(file.attributes) ? file.attributes : null;
+  const parsedContent = parseJsonObject(fileContentCache[file.name]);
+  const account = getNestedRecord(parsedContent, 'account');
+  const user = getNestedRecord(parsedContent, 'user');
+  const profile = getNestedRecord(parsedContent, 'profile');
+  const nestedMetadata = getNestedRecord(parsedContent, 'metadata');
+
+  return firstNonEmptyString(
+    file.email,
+    file['service_email'],
+    metadata?.email,
+    attributes?.email,
+    parsedContent?.email,
+    parsedContent?.service_email,
+    account?.email,
+    user?.email,
+    profile?.email,
+    nestedMetadata?.email
+  ).toLowerCase();
+};
+
+const getAccountPoolAuthIdentifier = (file: AuthFileItem): string =>
+  firstNonEmptyString(file.auth_id, file.authId, file.id, file.name);
+
+const getAccountUsageSummary = (
+  file: AuthFileItem,
+  fileContentCache: Record<string, string>,
+  summaryByEmail: Map<string, AccountPoolUsageSummary>,
+  summaryByAuthID: Map<string, AccountPoolUsageSummary>
+): AccountPoolUsageSummary | null => {
+  const email = getAccountPoolEmail(file, fileContentCache);
+  if (email) {
+    const byEmail = summaryByEmail.get(email);
+    if (byEmail) return byEmail;
+  }
+
+  const authIdentifier = getAccountPoolAuthIdentifier(file);
+  if (authIdentifier) {
+    const byAuthID = summaryByAuthID.get(authIdentifier);
+    if (byAuthID) return byAuthID;
+  }
+
+  return null;
+};
+
+const getUsageMetricForSort = (
+  file: AuthFileItem,
+  fileContentCache: Record<string, string>,
+  summaryByEmail: Map<string, AccountPoolUsageSummary>,
+  summaryByAuthID: Map<string, AccountPoolUsageSummary>,
+  key: 'requests' | 'successes' | 'total_tokens' | 'failures'
+): number | null => {
+  const summary = getAccountUsageSummary(file, fileContentCache, summaryByEmail, summaryByAuthID);
+  if (!summary) return null;
+  const value = summary[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 };
 
 const clampAccountPoolPageSize = (value: number): number =>
@@ -554,8 +712,7 @@ export function AccountPoolPage() {
   const [checkConcurrency, setCheckConcurrency] = useState(readStoredCheckConcurrency);
   const [checkConcurrencyInput, setCheckConcurrencyInput] = useState(String(checkConcurrency));
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
-  const [usageRecords, setUsageRecords] = useState<AccountPoolUsageRecord[]>([]);
-  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageSummaries, setUsageSummaries] = useState<AccountPoolUsageSummary[]>([]);
 
   const applyRecords = useCallback((records: AccountPoolRecord[]) => {
     const nextRecords = uniqueAccountPoolRecords(records);
@@ -607,34 +764,23 @@ export function AccountPoolPage() {
     return () => window.removeEventListener(ACCOUNT_POOL_UPDATED_EVENT, handleAccountPoolUpdated);
   }, [applyRecords, hydrateStoredPool, syncFiles]);
 
-  const loadUsageRecords = useCallback(async () => {
-    setUsageLoading(true);
+  const loadUsageSummaries = useCallback(async () => {
     try {
-      setUsageRecords(await authFilesApi.getAccountPoolUsageRecords(80));
+      const response = await authFilesApi.getAccountPoolUsageRecords(80);
+      setUsageSummaries(response.summaries);
     } catch {
-      setUsageRecords([]);
-    } finally {
-      setUsageLoading(false);
+      setUsageSummaries([]);
     }
   }, []);
 
   useEffect(() => {
-    void loadUsageRecords();
+    void loadUsageSummaries();
     const timer = window.setInterval(() => {
-      void loadUsageRecords();
+      void loadUsageSummaries();
     }, 8000);
     return () => window.clearInterval(timer);
-  }, [loadUsageRecords]);
+  }, [loadUsageSummaries]);
 
-  const clearUsageRecords = useCallback(async () => {
-    try {
-      await authFilesApi.clearAccountPoolUsageRecords();
-      setUsageRecords([]);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('common.unknown_error');
-      showNotification(t('account_pool.usage_clear_failed', { message, defaultValue: `清空使用记录失败：${message}` }), 'error');
-    }
-  }, [showNotification, t]);
 
   const typeOptions = useMemo(() => {
     const types = Array.from(new Set(files.map(getFileType))).sort((a, b) => a.localeCompare(b));
@@ -649,6 +795,10 @@ export function AccountPoolPage() {
       { value: 'check', label: t('account_pool.sort_check') },
       { value: 'quota_desc', label: t('account_pool.sort_quota_desc') },
       { value: 'quota_asc', label: t('account_pool.sort_quota_asc') },
+      { value: 'requests_desc', label: t('account_pool.sort_requests_desc', { defaultValue: '请求最多' }) },
+      { value: 'success_desc', label: t('account_pool.sort_success_desc', { defaultValue: '成功最多' }) },
+      { value: 'token_desc', label: t('account_pool.sort_token_desc', { defaultValue: 'Token 最多' }) },
+      { value: 'failure_desc', label: t('account_pool.sort_failure_desc', { defaultValue: '失败最多' }) },
       { value: 'registered_desc', label: t('account_pool.sort_registered_desc') },
       { value: 'registered_asc', label: t('account_pool.sort_registered_asc') },
       { value: 'modified_desc', label: t('account_pool.sort_modified_desc') },
@@ -689,6 +839,53 @@ export function AccountPoolPage() {
     [t]
   );
 
+  const usageSummaryByEmail = useMemo(() => {
+    const map = new Map<string, AccountPoolUsageSummary>();
+    usageSummaries.forEach((summary) => {
+      const email = String(summary.service_email ?? '').trim().toLowerCase();
+      if (email && !map.has(email)) {
+        map.set(email, summary);
+      }
+    });
+    return map;
+  }, [usageSummaries]);
+
+  const usageSummaryByAuthID = useMemo(() => {
+    const map = new Map<string, AccountPoolUsageSummary>();
+    usageSummaries.forEach((summary) => {
+      const authID = String(summary.auth_id ?? '').trim();
+      if (authID && !map.has(authID)) {
+        map.set(authID, summary);
+      }
+    });
+    return map;
+  }, [usageSummaries]);
+
+  const compareUsageMetric = useCallback(
+    (
+      left: AuthFileItem,
+      right: AuthFileItem,
+      key: 'requests' | 'successes' | 'total_tokens' | 'failures'
+    ): number => {
+      const leftValue = getUsageMetricForSort(
+        left,
+        fileContentCache,
+        usageSummaryByEmail,
+        usageSummaryByAuthID,
+        key
+      );
+      const rightValue = getUsageMetricForSort(
+        right,
+        fileContentCache,
+        usageSummaryByEmail,
+        usageSummaryByAuthID,
+        key
+      );
+      return compareOptionalTime(leftValue, rightValue, 'desc');
+    },
+    [fileContentCache, usageSummaryByAuthID, usageSummaryByEmail]
+  );
+
   const filteredFiles = useMemo(() => {
     const term = search.trim().toLowerCase();
     return files
@@ -718,14 +915,39 @@ export function AccountPoolPage() {
           );
           if (timeDiff !== 0) return timeDiff;
         } else if (sortMode === 'quota_desc' || sortMode === 'quota_asc') {
-          const leftQuota = checkResults[left.name]?.quotaRemainingPercent;
-          const rightQuota = checkResults[right.name]?.quotaRemainingPercent;
+          const leftResult = checkResults[left.name];
+          const rightResult = checkResults[right.name];
+          const leftQuota = leftResult?.quotaRemainingPercent;
+          const rightQuota = rightResult?.quotaRemainingPercent;
           const quotaDiff = compareOptionalTime(
             typeof leftQuota === 'number' ? leftQuota : null,
             typeof rightQuota === 'number' ? rightQuota : null,
             sortMode === 'quota_asc' ? 'asc' : 'desc'
           );
           if (quotaDiff !== 0) return quotaDiff;
+
+          const leftIsZero = typeof leftQuota === 'number' && leftQuota <= 0;
+          const rightIsZero = typeof rightQuota === 'number' && rightQuota <= 0;
+          if (leftIsZero && rightIsZero) {
+            const resetDiff = compareOptionalTime(
+              getEarliestQuotaResetTime(leftResult),
+              getEarliestQuotaResetTime(rightResult),
+              'asc'
+            );
+            if (resetDiff !== 0) return resetDiff;
+          }
+        } else if (sortMode === 'requests_desc') {
+          const diff = compareUsageMetric(left, right, 'requests');
+          if (diff !== 0) return diff;
+        } else if (sortMode === 'success_desc') {
+          const diff = compareUsageMetric(left, right, 'successes');
+          if (diff !== 0) return diff;
+        } else if (sortMode === 'token_desc') {
+          const diff = compareUsageMetric(left, right, 'total_tokens');
+          if (diff !== 0) return diff;
+        } else if (sortMode === 'failure_desc') {
+          const diff = compareUsageMetric(left, right, 'failures');
+          if (diff !== 0) return diff;
         }
 
         const rankDiff =
@@ -745,6 +967,7 @@ export function AccountPoolPage() {
     search,
     sortMode,
     typeFilter,
+    compareUsageMetric,
   ]);
 
   const selectedSet = useMemo(() => new Set(selectedNames), [selectedNames]);
@@ -945,28 +1168,21 @@ export function AccountPoolPage() {
 
   const overwritePassedAuthFiles = async () => {
     if (passedFiles.length === 0 || overwritingPassed) return;
-    const uploadFiles = passedFiles.reduce<File[]>((result, file) => {
-      const content = fileContentCache[file.name];
-      if (!content) return result;
-      result.push(new File([content], file.name, { type: 'application/json' }));
-      return result;
-    }, []);
-
-    if (uploadFiles.length === 0) {
-      showNotification(t('account_pool.overwrite_passed_empty_content'), 'warning');
-      return;
-    }
-
     setOverwritingPassed(true);
     try {
+      const uploadFiles = await Promise.all(
+        passedFiles.map(async (file) => {
+          const content = fileContentCache[file.name] ?? await authFilesApi.downloadText(file.name);
+          return new File([content], file.name, { type: 'application/json' });
+        })
+      );
       await authFilesApi.deleteAll();
       const result = await authFilesApi.uploadFiles(uploadFiles);
-      const skipped = passedFiles.length - uploadFiles.length;
-      if (result.failed.length > 0 || skipped > 0) {
+      if (result.failed.length > 0) {
         showNotification(
           t('account_pool.overwrite_passed_partial', {
             success: result.uploaded,
-            failed: result.failed.length + skipped,
+            failed: result.failed.length,
           }),
           'warning'
         );
@@ -1165,93 +1381,6 @@ export function AccountPoolPage() {
 
       {error && <div className={styles.errorBox}>{error}</div>}
 
-      <Card>
-        <div className={styles.usageHeader}>
-          <div>
-            <h2 className={styles.usageTitle}>
-              {t('account_pool.usage_title', { defaultValue: '使用记录' })}
-            </h2>
-            <p className={styles.usageDesc}>
-              {t('account_pool.usage_desc', {
-                defaultValue: '记录 NewAPI 用户、请求模型以及实际命中的账号池邮箱。',
-              })}
-            </p>
-          </div>
-          <div className={styles.usageActions}>
-            <Button variant="secondary" size="sm" onClick={() => void loadUsageRecords()} loading={usageLoading}>
-              {t('common.refresh')}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => void clearUsageRecords()} disabled={usageRecords.length === 0}>
-              {t('common.clear', { defaultValue: '清空' })}
-            </Button>
-          </div>
-        </div>
-        {usageRecords.length === 0 ? (
-          <div className={styles.usageEmpty}>
-            {usageLoading
-              ? t('account_pool.usage_loading', { defaultValue: '正在加载使用记录...' })
-              : t('account_pool.usage_empty', { defaultValue: '暂无使用记录' })}
-          </div>
-        ) : (
-          <div className={styles.usageTableWrap}>
-            <table className={styles.usageTable}>
-              <thead>
-                <tr>
-                  <th>{t('account_pool.usage_time', { defaultValue: '时间' })}</th>
-                  <th>{t('account_pool.usage_user', { defaultValue: 'NewAPI 用户' })}</th>
-                  <th>{t('account_pool.usage_service_email', { defaultValue: '服务账号邮箱' })}</th>
-                  <th>{t('account_pool.usage_model', { defaultValue: '模型' })}</th>
-                  <th>{t('account_pool.usage_status', { defaultValue: '状态' })}</th>
-                  <th>{t('account_pool.usage_tokens', { defaultValue: 'Token' })}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {usageRecords.slice(0, 12).map((record) => {
-                  const userLabel = record.username || record.newapi_user_id || '-';
-                  const statusCode = record.status_code ?? (record.success ? 200 : 0);
-                  return (
-                    <tr key={record.id}>
-                      <td>{formatUsageRecordTime(record.requested_at)}</td>
-                      <td>
-                        <div className={styles.usageStrong}>{userLabel}</div>
-                        {record.newapi_user_id && (
-                          <div className={styles.usageMuted}>ID {record.newapi_user_id}</div>
-                        )}
-                        {record.session_id && (
-                          <div className={styles.usageMuted} title={record.session_id}>
-                            {record.session_id}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <div className={styles.usageStrong}>
-                          {record.service_email || record.auth_id || '-'}
-                        </div>
-                        {record.auth_index && (
-                          <div className={styles.usageMuted}>#{record.auth_index}</div>
-                        )}
-                      </td>
-                      <td>
-                        <div className={styles.usageStrong}>{record.alias || record.model || '-'}</div>
-                        <div className={styles.usageMuted}>{record.provider || '-'}</div>
-                      </td>
-                      <td>
-                        <span className={record.success ? styles.usageStatusOk : styles.usageStatusError}>
-                          {statusCode || (record.success ? 'OK' : 'ERR')}
-                        </span>
-                        {typeof record.latency_ms === 'number' && record.latency_ms > 0 && (
-                          <div className={styles.usageMuted}>{record.latency_ms} ms</div>
-                        )}
-                      </td>
-                      <td>{record.total_tokens ?? 0}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
 
       <Card>
         <div className={styles.toolbar}>
@@ -1387,6 +1516,12 @@ export function AccountPoolPage() {
               const modifiedLabel = getFileModifiedLabel(file);
               const statusMessage = String(file.statusMessage || file['status_message'] || '');
               const checkResult = checkResults[file.name];
+              const usageSummary = getAccountUsageSummary(
+                file,
+                fileContentCache,
+                usageSummaryByEmail,
+                usageSummaryByAuthID
+              );
               const planLabel = getPlanLabel(checkResult?.plan);
               const checkedAtLabel = checkResult?.checkedAt
                 ? formatUnixTimestamp(Math.round(checkResult.checkedAt / 1000))
@@ -1409,6 +1544,40 @@ export function AccountPoolPage() {
                         <span className={styles.typeBadge}>{type}</span>
                         {planLabel && <span className={styles.planBadge}>{planLabel}</span>}
                         {modifiedLabel && <span className={styles.muted}>{modifiedLabel}</span>}
+                      </div>
+                      <div className={styles.usageMetricRow}>
+                        <div className={styles.usageMetric}>
+                          <span className={styles.usageMetricLabel}>
+                            {t('account_pool.usage_requests', { defaultValue: '璇锋眰' })}
+                          </span>
+                          <strong className={styles.usageMetricValue}>
+                            {formatUsageMetric(usageSummary?.requests)}
+                          </strong>
+                        </div>
+                        <div className={styles.usageMetric}>
+                          <span className={styles.usageMetricLabel}>
+                            {t('account_pool.usage_successes', { defaultValue: '鎴愬姛' })}
+                          </span>
+                          <strong className={styles.usageMetricValue}>
+                            {formatUsageMetric(usageSummary?.successes)}
+                          </strong>
+                        </div>
+                        <div className={styles.usageMetric}>
+                          <span className={styles.usageMetricLabel}>
+                            {t('account_pool.usage_total_tokens', { defaultValue: 'Token' })}
+                          </span>
+                          <strong className={styles.usageMetricValue}>
+                            {formatUsageMetric(usageSummary?.total_tokens)}
+                          </strong>
+                        </div>
+                        <div className={styles.usageMetric}>
+                          <span className={styles.usageMetricLabel}>
+                            {t('account_pool.usage_failures', { defaultValue: '澶辫触' })}
+                          </span>
+                          <strong className={styles.usageMetricValue}>
+                            {formatUsageMetric(usageSummary?.failures)}
+                          </strong>
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -2,18 +2,17 @@
  * Generic quota section component.
  */
 
-import { useCallback, type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, type ChangeEvent, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
+import { Select } from '@/components/ui/Select';
+import { useNotificationStore, useQuotaRefreshStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
 import { getStatusFromError } from '@/utils/quota';
 import { QuotaCard } from './QuotaCard';
 import type { QuotaStatusState } from './QuotaCard';
-import { useQuotaLoader } from './useQuotaLoader';
 import type { QuotaConfig } from './quotaConfigs';
 import { useGridColumns } from './useGridColumns';
 import { IconRefreshCw } from '@/components/ui/icons';
@@ -28,6 +27,11 @@ type ViewMode = 'paged' | 'all';
 const MAX_AUTO_ITEMS_PER_PAGE = 25;
 const MAX_SHOW_ALL_THRESHOLD = 30;
 const MIN_QUOTA_PAGE_SIZE = 1;
+const DEFAULT_QUOTA_REFRESH_CONCURRENCY = 5;
+const MIN_QUOTA_REFRESH_CONCURRENCY = 1;
+const MAX_QUOTA_REFRESH_CONCURRENCY = 20;
+
+type QuotaSortMode = 'quota_desc' | 'quota_asc' | 'name_asc';
 
 interface QuotaPaginationState<T> {
   pageSize: number;
@@ -37,16 +41,11 @@ interface QuotaPaginationState<T> {
   setPageSize: (size: number) => void;
   goToPrev: () => void;
   goToNext: () => void;
-  loading: boolean;
-  loadingScope: 'page' | 'all' | null;
-  setLoading: (loading: boolean, scope?: 'page' | 'all' | null) => void;
 }
 
 const useQuotaPagination = <T,>(items: T[], defaultPageSize = 6): QuotaPaginationState<T> => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSizeState] = useState(defaultPageSize);
-  const [loading, setLoadingState] = useState(false);
-  const [loadingScope, setLoadingScope] = useState<'page' | 'all' | null>(null);
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(items.length / pageSize)),
@@ -73,11 +72,6 @@ const useQuotaPagination = <T,>(items: T[], defaultPageSize = 6): QuotaPaginatio
     setPage((prev) => Math.min(totalPages, prev + 1));
   }, [totalPages]);
 
-  const setLoading = useCallback((isLoading: boolean, scope?: 'page' | 'all' | null) => {
-    setLoadingState(isLoading);
-    setLoadingScope(isLoading ? (scope ?? null) : null);
-  }, []);
-
   return {
     pageSize,
     totalPages,
@@ -86,57 +80,49 @@ const useQuotaPagination = <T,>(items: T[], defaultPageSize = 6): QuotaPaginatio
     setPageSize,
     goToPrev,
     goToNext,
-    loading,
-    loadingScope,
-    setLoading
   };
 };
 
 interface QuotaSectionProps<TState extends QuotaStatusState, TData> {
   config: QuotaConfig<TState, TData>;
   files: AuthFileItem[];
-  loading: boolean;
   disabled: boolean;
 }
 
 export function QuotaSection<TState extends QuotaStatusState, TData>({
   config,
   files,
-  loading,
   disabled
 }: QuotaSectionProps<TState, TData>) {
   const { t } = useTranslation();
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const showNotification = useNotificationStore((state) => state.showNotification);
+  const quota = useQuotaStore(config.storeSelector);
   const setQuota = useQuotaStore((state) => state[config.storeSetter]) as QuotaSetter<
     Record<string, TState>
   >;
+  const refreshTask = useQuotaRefreshStore((state) => state.tasks[config.type]);
+  const beginRefresh = useQuotaRefreshStore((state) => state.begin);
+  const advanceRefresh = useQuotaRefreshStore((state) => state.advance);
+  const finishRefresh = useQuotaRefreshStore((state) => state.finish);
+  const setRefreshStoreConcurrency = useQuotaRefreshStore((state) => state.setConcurrency);
 
   /* Removed useRef */
   const [columns, gridRef] = useGridColumns(380); // Min card width 380px matches SCSS
   const [viewMode, setViewMode] = useState<ViewMode>('paged');
   const [customPageSize, setCustomPageSize] = useState<number | null>(null);
   const [pageSizeInput, setPageSizeInput] = useState('');
+  const [sortMode, setSortMode] = useState<QuotaSortMode>('quota_desc');
+  const [refreshConcurrency, setRefreshConcurrency] = useState(DEFAULT_QUOTA_REFRESH_CONCURRENCY);
+  const [refreshConcurrencyInput, setRefreshConcurrencyInput] = useState(
+    String(DEFAULT_QUOTA_REFRESH_CONCURRENCY)
+  );
   const [showTooManyWarning, setShowTooManyWarning] = useState(false);
 
-  const filteredFiles = useMemo(() => files.filter((file) => config.filterFn(file)), [
-    files,
-    config
-  ]);
+  const filteredFiles = useMemo(() => files.filter((file) => config.filterFn(file)), [files, config]);
   const showAllAllowed = filteredFiles.length <= MAX_SHOW_ALL_THRESHOLD;
   const effectiveViewMode: ViewMode = viewMode === 'all' && !showAllAllowed ? 'paged' : viewMode;
 
-  const {
-    pageSize,
-    totalPages,
-    currentPage,
-    pageItems,
-    setPageSize,
-    goToPrev,
-    goToNext,
-    loading: sectionLoading,
-    setLoading
-  } = useQuotaPagination(filteredFiles);
   const automaticPageSize = useMemo(() => {
     if (effectiveViewMode === 'all') {
       return Math.max(MIN_QUOTA_PAGE_SIZE, filteredFiles.length);
@@ -167,6 +153,127 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     };
   }, [showAllAllowed, viewMode]);
 
+  const clampQuotaRefreshConcurrency = useCallback(
+    (value: number) =>
+      Math.min(
+        MAX_QUOTA_REFRESH_CONCURRENCY,
+        Math.max(MIN_QUOTA_REFRESH_CONCURRENCY, Math.round(value))
+      ),
+    []
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storageKey = `quota-refresh-concurrency:${config.type}`;
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+    const next = clampQuotaRefreshConcurrency(parsed);
+    setRefreshConcurrency(next);
+    setRefreshConcurrencyInput(String(next));
+    setRefreshStoreConcurrency(config.type, next);
+  }, [clampQuotaRefreshConcurrency, config.type, setRefreshStoreConcurrency]);
+
+  const getQuotaRemainingPercent = useCallback(
+    (file: AuthFileItem): number | null => {
+      const state = quota[file.name] as Record<string, unknown> | undefined;
+      if (!state || state.status !== 'success') return null;
+
+      if (config.type === 'antigravity') {
+        const groups = Array.isArray(state.groups) ? state.groups : [];
+        const values = groups
+          .map((group) => {
+            if (!group || typeof group !== 'object') return null;
+            const fraction = (group as Record<string, unknown>).remainingFraction;
+            return typeof fraction === 'number' && Number.isFinite(fraction) ? fraction * 100 : null;
+          })
+          .filter((value): value is number => value !== null);
+        return values.length > 0 ? Math.min(...values) : null;
+      }
+
+      if (config.type === 'codex' || config.type === 'claude') {
+        const windows = Array.isArray(state.windows) ? state.windows : [];
+        const values = windows
+          .map((windowItem) => {
+            if (!windowItem || typeof windowItem !== 'object') return null;
+            const used = (windowItem as Record<string, unknown>).usedPercent;
+            return typeof used === 'number' && Number.isFinite(used) ? Math.max(0, 100 - used) : null;
+          })
+          .filter((value): value is number => value !== null);
+        return values.length > 0 ? Math.min(...values) : null;
+      }
+
+      if (config.type === 'gemini-cli') {
+        const buckets = Array.isArray(state.buckets) ? state.buckets : [];
+        const values = buckets
+          .map((bucket) => {
+            if (!bucket || typeof bucket !== 'object') return null;
+            const fraction = (bucket as Record<string, unknown>).remainingFraction;
+            return typeof fraction === 'number' && Number.isFinite(fraction) ? fraction * 100 : null;
+          })
+          .filter((value): value is number => value !== null);
+        return values.length > 0 ? Math.min(...values) : null;
+      }
+
+      if (config.type === 'kimi') {
+        const rows = Array.isArray(state.rows) ? state.rows : [];
+        const values = rows
+          .map((row) => {
+            if (!row || typeof row !== 'object') return null;
+            const used = (row as Record<string, unknown>).used;
+            const limit = (row as Record<string, unknown>).limit;
+            if (
+              typeof used !== 'number' ||
+              !Number.isFinite(used) ||
+              typeof limit !== 'number' ||
+              !Number.isFinite(limit) ||
+              limit <= 0
+            ) {
+              return null;
+            }
+            return Math.max(0, ((limit - used) / limit) * 100);
+          })
+          .filter((value): value is number => value !== null);
+        return values.length > 0 ? Math.min(...values) : null;
+      }
+
+      return null;
+    },
+    [config.type, quota]
+  );
+
+  const sortedFiles = useMemo(() => {
+    const items = [...filteredFiles];
+    items.sort((left, right) => {
+      if (sortMode === 'name_asc') {
+        return left.name.localeCompare(right.name);
+      }
+      const leftQuota = getQuotaRemainingPercent(left);
+      const rightQuota = getQuotaRemainingPercent(right);
+      if (leftQuota === null && rightQuota === null) {
+        return left.name.localeCompare(right.name);
+      }
+      if (leftQuota === null) return 1;
+      if (rightQuota === null) return -1;
+      if (leftQuota !== rightQuota) {
+        return sortMode === 'quota_asc' ? leftQuota - rightQuota : rightQuota - leftQuota;
+      }
+      return left.name.localeCompare(right.name);
+    });
+    return items;
+  }, [filteredFiles, getQuotaRemainingPercent, sortMode]);
+
+  const {
+    pageSize,
+    totalPages,
+    currentPage,
+    pageItems,
+    setPageSize,
+    goToPrev,
+    goToNext,
+  } = useQuotaPagination(sortedFiles);
+
   useEffect(() => {
     const nextPageSize =
       effectiveViewMode === 'all'
@@ -175,16 +282,6 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     setPageSize(nextPageSize);
     setPageSizeInput(String(nextPageSize));
   }, [automaticPageSize, clampQuotaPageSize, customPageSize, effectiveViewMode, setPageSize]);
-
-  const { quota, loadQuota } = useQuotaLoader(config);
-
-  const pendingQuotaRefreshRef = useRef(false);
-  const prevFilesLoadingRef = useRef(loading);
-
-  const handleRefresh = useCallback(() => {
-    pendingQuotaRefreshRef.current = true;
-    void triggerHeaderRefresh();
-  }, []);
 
   const commitPageSizeInput = useCallback(
     (rawValue: string) => {
@@ -229,38 +326,119 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     [clampQuotaPageSize, setPageSize]
   );
 
-  useEffect(() => {
-    const wasLoading = prevFilesLoadingRef.current;
-    prevFilesLoadingRef.current = loading;
+  const commitRefreshConcurrencyInput = useCallback(
+    (rawValue: string) => {
+      const trimmed = rawValue.trim();
+      if (!trimmed) {
+        setRefreshConcurrencyInput(String(refreshConcurrency));
+        return;
+      }
+      const parsed = Number(trimmed);
+      if (!Number.isFinite(parsed)) {
+        setRefreshConcurrencyInput(String(refreshConcurrency));
+        return;
+      }
+      const next = clampQuotaRefreshConcurrency(parsed);
+      setRefreshConcurrency(next);
+      setRefreshConcurrencyInput(String(next));
+      setRefreshStoreConcurrency(config.type, next);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(`quota-refresh-concurrency:${config.type}`, String(next));
+      }
+    },
+    [clampQuotaRefreshConcurrency, config.type, refreshConcurrency, setRefreshStoreConcurrency]
+  );
 
-    if (!pendingQuotaRefreshRef.current) return;
-    if (loading) return;
-    if (!wasLoading) return;
+  const handleRefreshConcurrencyChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const rawValue = event.currentTarget.value;
+      setRefreshConcurrencyInput(rawValue);
+      const trimmed = rawValue.trim();
+      if (!trimmed) return;
+      const parsed = Number(trimmed);
+      if (!Number.isFinite(parsed)) return;
+      const next = clampQuotaRefreshConcurrency(parsed);
+      setRefreshConcurrency(next);
+      setRefreshStoreConcurrency(config.type, next);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(`quota-refresh-concurrency:${config.type}`, String(next));
+      }
+    },
+    [clampQuotaRefreshConcurrency, config.type, setRefreshStoreConcurrency]
+  );
 
-    pendingQuotaRefreshRef.current = false;
-    const scope = effectiveViewMode === 'all' ? 'all' : 'page';
-    const targets = effectiveViewMode === 'all' ? filteredFiles : pageItems;
+  const handleRefresh = useCallback(async () => {
+    if (disabled || refreshTask.refreshing) return;
+    const targets = sortedFiles;
     if (targets.length === 0) return;
-    loadQuota(targets, scope, setLoading);
-  }, [loading, effectiveViewMode, filteredFiles, pageItems, loadQuota, setLoading]);
 
-  useEffect(() => {
-    if (loading) return;
-    if (filteredFiles.length === 0) {
-      setQuota({});
-      return;
-    }
+    const runId = beginRefresh(config.type, targets.length, refreshConcurrency);
+    if (!runId) return;
+
     setQuota((prev) => {
-      const nextState: Record<string, TState> = {};
-      filteredFiles.forEach((file) => {
-        const cached = prev[file.name];
-        if (cached) {
-          nextState[file.name] = cached;
-        }
+      const next = { ...prev };
+      targets.forEach((file) => {
+        next[file.name] = config.buildLoadingState();
       });
-      return nextState;
+      return next;
     });
-  }, [filteredFiles, loading, setQuota]);
+
+    let cursor = 0;
+    const workerCount = Math.max(1, Math.min(refreshConcurrency, targets.length));
+
+    const worker = async () => {
+      for (;;) {
+        const index = cursor;
+        cursor += 1;
+        const file = targets[index];
+        if (!file) return;
+        try {
+          const data = await config.fetchQuota(file, t);
+          setQuota((prev) => ({
+            ...prev,
+            [file.name]: config.buildSuccessState(data),
+          }));
+          advanceRefresh(config.type, runId, true);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : t('common.unknown_error');
+          const status = getStatusFromError(err);
+          setQuota((prev) => ({
+            ...prev,
+            [file.name]: config.buildErrorState(message, status),
+          }));
+          advanceRefresh(config.type, runId, false);
+        }
+      }
+    };
+
+    try {
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
+      const latest = useQuotaRefreshStore.getState().tasks[config.type];
+      const summary = latest.summary;
+      showNotification(
+        t('auth_files.quota_refresh_all_done', {
+          success: summary.success,
+          failed: summary.failed,
+          defaultValue: `额度刷新完成：成功 ${summary.success}，失败 ${summary.failed}`,
+        }),
+        summary.failed > 0 ? 'warning' : 'success'
+      );
+    } finally {
+      finishRefresh(config.type, runId);
+    }
+  }, [
+    advanceRefresh,
+    beginRefresh,
+    config,
+    disabled,
+    finishRefresh,
+    refreshConcurrency,
+    refreshTask.refreshing,
+    setQuota,
+    showNotification,
+    sortedFiles,
+    t,
+  ]);
 
   const refreshQuotaForFile = useCallback(
     async (file: AuthFileItem) => {
@@ -295,6 +473,24 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     [config, disabled, quota, setQuota, showNotification, t]
   );
 
+  const sortOptions = useMemo(
+    () => [
+      {
+        value: 'quota_desc',
+        label: t('quota_management.sort_quota_desc', { defaultValue: '额度最高' }),
+      },
+      {
+        value: 'quota_asc',
+        label: t('quota_management.sort_quota_asc', { defaultValue: '额度最低' }),
+      },
+      {
+        value: 'name_asc',
+        label: t('quota_management.sort_name_asc', { defaultValue: '名称 A-Z' }),
+      },
+    ],
+    [t]
+  );
+
   const titleNode = (
     <div className={styles.titleWrapper}>
       <span>{t(`${config.i18nPrefix}.title`)}</span>
@@ -306,7 +502,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     </div>
   );
 
-  const isRefreshing = sectionLoading || loading;
+  const isRefreshing = refreshTask.refreshing;
 
   return (
     <Card
@@ -362,6 +558,36 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
               />
             </label>
           )}
+          <label className={styles.quotaPageSizeControl}>
+            <span>{t('quota_management.sort_label', { defaultValue: '排序' })}</span>
+            <Select
+              className={styles.quotaSortSelect}
+              fullWidth={false}
+              value={sortMode}
+              options={sortOptions}
+              onChange={(value) => setSortMode(value as QuotaSortMode)}
+              ariaLabel={t('quota_management.sort_label', { defaultValue: '排序' })}
+            />
+          </label>
+          <label className={styles.quotaPageSizeControl}>
+            <span>{t('quota_management.check_concurrency', { defaultValue: '刷新并发' })}</span>
+            <input
+              className={styles.pageSizeSelect}
+              type="number"
+              min={MIN_QUOTA_REFRESH_CONCURRENCY}
+              max={MAX_QUOTA_REFRESH_CONCURRENCY}
+              step={1}
+              value={refreshConcurrencyInput}
+              onChange={handleRefreshConcurrencyChange}
+              onBlur={(event) => commitRefreshConcurrencyInput(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.currentTarget.blur();
+                }
+              }}
+              aria-label={t('quota_management.check_concurrency', { defaultValue: '刷新并发' })}
+            />
+          </label>
           <Button
             variant="secondary"
             size="sm"
@@ -385,6 +611,17 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
         />
       ) : (
         <>
+          {refreshTask.refreshing && (
+            <div className={styles.statsInfo}>
+              {t('quota_management.refresh_progress', {
+                done: refreshTask.summary.done,
+                total: refreshTask.summary.total,
+                success: refreshTask.summary.success,
+                failed: refreshTask.summary.failed,
+                defaultValue: `刷新进度 ${refreshTask.summary.done}/${refreshTask.summary.total}，成功 ${refreshTask.summary.success}，失败 ${refreshTask.summary.failed}`,
+              })}
+            </div>
+          )}
           <div ref={gridRef} className={config.gridClassName}>
             {pageItems.map((item) => (
               <QuotaCard

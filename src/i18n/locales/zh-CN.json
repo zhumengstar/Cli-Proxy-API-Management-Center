@@ -117,7 +117,9 @@
     "quota_management": "配额管理",
     "config_management": "配置面板",
     "logs": "日志查看",
+    "external_request_logs": "外部请求日志",
     "system_info": "中心信息",
+    "usage_records": "使用记录",
     "account_pool": "账号池"
   },
   "dashboard": {

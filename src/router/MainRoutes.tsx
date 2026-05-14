@@ -17,9 +17,9 @@ import { AuthFilesOAuthModelAliasEditPage } from '@/pages/AuthFilesOAuthModelAli
 import { OAuthPage } from '@/pages/OAuthPage';
 import { QuotaPage } from '@/pages/QuotaPage';
 import { ConfigPage } from '@/pages/ConfigPage';
-import { LogsPage } from '@/pages/LogsPage';
 import { SystemPage } from '@/pages/SystemPage';
 import { AccountPoolPage } from '@/pages/AccountPoolPage';
+import { UsageRecordsPage } from '@/pages/UsageRecordsPage';
 
 const mainRoutes = [
   { path: '/', element: <DashboardPage /> },
@@ -73,8 +73,10 @@ const mainRoutes = [
   { path: '/oauth', element: <OAuthPage /> },
   { path: '/quota', element: <QuotaPage /> },
   { path: '/config', element: <ConfigPage /> },
-  { path: '/logs', element: <LogsPage /> },
+  { path: '/logs', element: <Navigate to="/" replace /> },
+  { path: '/external-request-logs', element: <Navigate to="/" replace /> },
   { path: '/system', element: <SystemPage /> },
+  { path: '/usage-records', element: <UsageRecordsPage /> },
   { path: '/account-pool', element: <AccountPoolPage /> },
   { path: '*', element: <Navigate to="/" replace /> },
 ];

@@ -3,9 +3,10 @@ import type { AuthFileItem, AuthFilesResponse } from '@/types/authFile';
 
 export type AccountPoolRecord = {
   file: AuthFileItem;
-  content: string;
+  content?: string;
   hash: string;
   savedAt: number;
+  sourceFingerprint?: string;
 };
 
 export const ACCOUNT_POOL_STORAGE_KEY = 'cli-proxy-account-pool';
@@ -62,13 +63,14 @@ export const readAccountPoolRecords = (): AccountPoolRecord[] => {
       if (!item || typeof item !== 'object') return records;
       const record = item as Partial<AccountPoolRecord>;
       if (!record.file || typeof record.file !== 'object') return records;
-      if (typeof record.content !== 'string' || !record.content.trim()) return records;
       if (typeof record.hash !== 'string' || !record.hash.trim()) return records;
       records.push({
         file: record.file,
-        content: record.content,
+        content: typeof record.content === 'string' ? record.content : undefined,
         hash: record.hash,
         savedAt: typeof record.savedAt === 'number' ? record.savedAt : 0,
+        sourceFingerprint:
+          typeof record.sourceFingerprint === 'string' ? record.sourceFingerprint : undefined,
       });
       return records;
     }, []);
@@ -79,7 +81,13 @@ export const readAccountPoolRecords = (): AccountPoolRecord[] => {
 
 export const writeAccountPoolRecords = (records: AccountPoolRecord[]) => {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(ACCOUNT_POOL_STORAGE_KEY, JSON.stringify(records));
+  const compactRecords = records.map((record) => ({
+    file: record.file,
+    hash: record.hash,
+    savedAt: record.savedAt,
+    sourceFingerprint: record.sourceFingerprint,
+  }));
+  window.localStorage.setItem(ACCOUNT_POOL_STORAGE_KEY, JSON.stringify(compactRecords));
 };
 
 export const uniqueAccountPoolRecords = (records: AccountPoolRecord[]): AccountPoolRecord[] => {
@@ -99,7 +107,9 @@ export const buildAccountPoolFileContentCache = (
   records: AccountPoolRecord[]
 ): Record<string, string> =>
   records.reduce<Record<string, string>>((cache, record) => {
-    cache[record.file.name] = record.content;
+    if (record.content) {
+      cache[record.file.name] = record.content;
+    }
     return cache;
   }, {});
 
@@ -136,6 +146,23 @@ const normalizeAuthFilesPayload = (payload: unknown): AuthFileItem[] => {
   return Array.isArray(files) ? files : [];
 };
 
+const readAuthFileField = (file: AuthFileItem, key: string): unknown =>
+  (file as Record<string, unknown>)[key];
+
+const buildAuthFileFingerprint = (file: AuthFileItem): string => {
+  const parts = [
+    file.name,
+    readAuthFileField(file, 'size'),
+    readAuthFileField(file, 'modified'),
+    readAuthFileField(file, 'modtime'),
+    readAuthFileField(file, 'updated_at'),
+    readAuthFileField(file, 'last_refresh'),
+    readAuthFileField(file, 'disabled'),
+    readAuthFileField(file, 'status'),
+  ];
+  return parts.map((part) => String(part ?? '')).join('|');
+};
+
 export const syncAccountPoolFromAuthFiles = async (): Promise<AccountPoolRecord[]> => {
   if (syncInFlight) return syncInFlight;
 
@@ -154,6 +181,16 @@ export const syncAccountPoolFromAuthFiles = async (): Promise<AccountPoolRecord[
       importedFiles,
       ACCOUNT_POOL_SYNC_CONCURRENCY,
       async (file) => {
+        const sourceFingerprint = buildAuthFileFingerprint(file);
+        const existing = recordsByName.get(file.name);
+        if (existing?.hash && existing.sourceFingerprint === sourceFingerprint) {
+          recordsByName.set(file.name, {
+            ...existing,
+            file,
+          });
+          return;
+        }
+
         try {
           const responseText = await apiClient.getRaw(
             `/auth-files/download?name=${encodeURIComponent(file.name)}`,
@@ -163,9 +200,9 @@ export const syncAccountPoolFromAuthFiles = async (): Promise<AccountPoolRecord[
           const hash = await hashText(normalizeJsonForDedupe(rawText));
           recordsByName.set(file.name, {
             file,
-            content: rawText,
             hash,
             savedAt: Date.now(),
+            sourceFingerprint,
           });
         } catch {
           // Keep the existing pool intact even when a source auth file can no longer be read.

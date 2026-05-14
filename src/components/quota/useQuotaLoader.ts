@@ -23,6 +23,28 @@ interface LoadQuotaResult<TData> {
   errorStatus?: number;
 }
 
+const runWithConcurrency = async <T,>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+) => {
+  if (items.length === 0) return;
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      for (;;) {
+        const index = cursor;
+        cursor += 1;
+        const item = items[index];
+        if (item === undefined) return;
+        await worker(item);
+      }
+    })
+  );
+};
+
 export function useQuotaLoader<TState, TData>(config: QuotaConfig<TState, TData>) {
   const { t } = useTranslation();
   const quota = useQuotaStore(config.storeSelector);
@@ -37,7 +59,8 @@ export function useQuotaLoader<TState, TData>(config: QuotaConfig<TState, TData>
     async (
       targets: AuthFileItem[],
       scope: QuotaScope,
-      setLoading: (loading: boolean, scope?: QuotaScope | null) => void
+      setLoading: (loading: boolean, scope?: QuotaScope | null) => void,
+      concurrency = 5
     ) => {
       if (loadingRef.current) return;
       loadingRef.current = true;
@@ -47,26 +70,19 @@ export function useQuotaLoader<TState, TData>(config: QuotaConfig<TState, TData>
       try {
         if (targets.length === 0) return;
 
-        setQuota((prev) => {
-          const nextState = { ...prev };
-          targets.forEach((file) => {
-            nextState[file.name] = config.buildLoadingState();
-          });
-          return nextState;
+        const results: LoadQuotaResult<TData>[] = [];
+        await runWithConcurrency(targets, concurrency, async (file) => {
+          let result: LoadQuotaResult<TData>;
+          try {
+            const data = await config.fetchQuota(file, t);
+            result = { name: file.name, status: 'success', data };
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : t('common.unknown_error');
+            const errorStatus = getStatusFromError(err);
+            result = { name: file.name, status: 'error', error: message, errorStatus };
+          }
+          results.push(result);
         });
-
-        const results = await Promise.all(
-          targets.map(async (file): Promise<LoadQuotaResult<TData>> => {
-            try {
-              const data = await config.fetchQuota(file, t);
-              return { name: file.name, status: 'success', data };
-            } catch (err: unknown) {
-              const message = err instanceof Error ? err.message : t('common.unknown_error');
-              const errorStatus = getStatusFromError(err);
-              return { name: file.name, status: 'error', error: message, errorStatus };
-            }
-          })
-        );
 
         if (requestId !== requestIdRef.current) return;
 

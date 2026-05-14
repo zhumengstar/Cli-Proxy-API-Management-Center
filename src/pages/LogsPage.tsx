@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -63,8 +64,20 @@ const getErrorMessage = (err: unknown): string => {
 
 type TabType = 'logs' | 'errors';
 
-export function LogsPage() {
+interface LogsPageProps {
+  mode?: 'all' | 'externalRequests';
+}
+
+const isExternalRequestLine = (line: ReturnType<typeof parseLogLine>): boolean => {
+  if (line.requestId) return true;
+  if (line.path?.startsWith('/v1')) return true;
+  if (line.path?.startsWith('/api/provider')) return true;
+  return false;
+};
+
+export function LogsPage({ mode = 'all' }: LogsPageProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { showNotification, showConfirmation } = useNotificationStore();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const config = useConfigStore((state) => state.config);
@@ -91,6 +104,7 @@ export function LogsPage() {
   const [errorLogsError, setErrorLogsError] = useState('');
   const [requestLogId, setRequestLogId] = useState<string | null>(null);
   const [requestLogDownloading, setRequestLogDownloading] = useState(false);
+  const externalRequestsOnly = mode === 'externalRequests';
 
   const logScrollerRef = useRef<ReturnType<typeof useLogScroller> | null>(null);
   const longPressRef = useRef<{
@@ -301,8 +315,9 @@ export function LogsPage() {
       working = working.filter((line) => line.toLowerCase().includes(queryLowered));
     }
 
-    return working.map((line) => parseLogLine(line));
-  }, [baseLines, hideManagementLogs, trimmedSearchQuery]);
+    const parsed = working.map((line) => parseLogLine(line));
+    return externalRequestsOnly ? parsed.filter(isExternalRequestLine) : parsed;
+  }, [baseLines, externalRequestsOnly, hideManagementLogs, trimmedSearchQuery]);
 
   const filters = useLogFilters({ parsedLines: parsedSearchLines });
   const structuredFiltersPanelId = 'logs-structured-filters';
@@ -452,24 +467,47 @@ export function LogsPage() {
 
   return (
     <div className={styles.container}>
-      <h1 className={styles.pageTitle}>{t('logs.title')}</h1>
+      <h1 className={styles.pageTitle}>
+        {externalRequestsOnly
+          ? t('nav.external_request_logs', { defaultValue: '外部请求日志' })
+          : t('logs.title')}
+      </h1>
 
       <div className={styles.tabBar}>
         <button
           type="button"
-          className={`${styles.tabItem} ${activeTab === 'logs' ? styles.tabActive : ''}`}
-          onClick={() => setActiveTab('logs')}
+          className={`${styles.tabItem} ${!externalRequestsOnly ? styles.tabActive : ''}`}
+          onClick={() => navigate('/logs')}
         >
-          {t('logs.log_content')}
+          {t('nav.logs')}
         </button>
         <button
           type="button"
-          className={`${styles.tabItem} ${activeTab === 'errors' ? styles.tabActive : ''}`}
-          onClick={() => setActiveTab('errors')}
+          className={`${styles.tabItem} ${externalRequestsOnly ? styles.tabActive : ''}`}
+          onClick={() => navigate('/external-request-logs')}
         >
-          {t('logs.error_logs_modal_title')}
+          {t('nav.external_request_logs', { defaultValue: '外部请求日志' })}
         </button>
       </div>
+
+      {!externalRequestsOnly && (
+        <div className={styles.tabBar}>
+          <button
+            type="button"
+            className={`${styles.tabItem} ${activeTab === 'logs' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('logs')}
+          >
+            {t('logs.log_content')}
+          </button>
+          <button
+            type="button"
+            className={`${styles.tabItem} ${activeTab === 'errors' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('errors')}
+          >
+            {t('logs.error_logs_modal_title')}
+          </button>
+        </div>
+      )}
 
       <div className={styles.content}>
         {activeTab === 'logs' && (
@@ -801,6 +839,16 @@ export function LogsPage() {
                             )}
 
                             {line.latency && <span className={styles.pill}>{line.latency}</span>}
+                            {line.firstByteMs && (
+                              <span className={styles.pill} title={`首字节 ${line.firstByteMs} ms`}>
+                                首字 {line.firstByteMs}ms
+                              </span>
+                            )}
+                            {line.tokens && (
+                              <span className={styles.pill} title={`总 Token ${line.tokens}`}>
+                                Token {line.tokens}
+                              </span>
+                            )}
                             {line.ip && <span className={styles.pill}>{line.ip}</span>}
 
                             {line.method && (
@@ -812,6 +860,45 @@ export function LogsPage() {
                             {line.path && (
                               <span className={styles.path} title={line.path}>
                                 {line.path}
+                              </span>
+                            )}
+
+                            {line.user && (
+                              <span className={styles.metaPill} title={`用户 ${line.user}`}>
+                                用户 {line.user}
+                              </span>
+                            )}
+                            {line.userId && (
+                              <span className={styles.metaPill} title={`用户 ID ${line.userId}`}>
+                                ID {line.userId}
+                              </span>
+                            )}
+                            {line.channel && (
+                              <span className={styles.metaPill} title={`渠道 ${line.channel}`}>
+                                渠道 {line.channel}
+                              </span>
+                            )}
+                            {line.model && (
+                              <span className={styles.metaPill} title={`模型 ${line.model}`}>
+                                模型 {line.model}
+                              </span>
+                            )}
+                            {line.requestType && (
+                              <span className={styles.metaPill} title={`类型 ${line.requestType}`}>
+                                类型 {line.requestType}
+                              </span>
+                            )}
+                            {line.retry && (
+                              <span className={styles.metaPill} title={`上游尝试 ${line.retry} 次`}>
+                                重试 {line.retry}
+                              </span>
+                            )}
+                            {line.matchedEmail && (
+                              <span
+                                className={[styles.metaPill, styles.emailPill].join(' ')}
+                                title={`命中账号 ${line.matchedEmail}`}
+                              >
+                                账号 {line.matchedEmail}
                               </span>
                             )}
 
